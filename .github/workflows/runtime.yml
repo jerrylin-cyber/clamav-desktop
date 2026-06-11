@@ -1,0 +1,36 @@
+name: Runtime Bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      clamav_version:
+        description: ClamAV version
+        required: true
+        default: 1.5.2
+
+jobs:
+  build-runtime:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: brew install cmake ninja zstd
+
+      - name: Build runtime bundle
+        run: scripts/build-runtime.sh
+        env:
+          CLAMAV_VERSION: ${{ inputs.clamav_version }}
+
+      - name: Upload runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: clamav-runtime-darwin-universal
+          path: |
+            app/build/runtime-artifacts/clamav-runtime-darwin-universal.tar.zst
+            app/build/runtime-artifacts/clamav-runtime-darwin-universal.sha256
+            app/build/runtime-artifacts/runtime-metadata.json

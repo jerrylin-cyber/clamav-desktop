@@ -1,0 +1,199 @@
+.appShell {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    min-height: 100vh;
+    background: #f6f8fb;
+    color: #172033;
+}
+
+.sidebar {
+    border-right: 1px solid #d9e0ea;
+    background: #ffffff;
+    padding: 20px 16px;
+}
+
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+}
+
+.brand span {
+    display: block;
+    color: #6b7688;
+    font-size: 13px;
+    margin-top: 2px;
+}
+
+.mark {
+    align-items: center;
+    background: #126c55;
+    border-radius: 8px;
+    color: #ffffff;
+    display: flex;
+    font-weight: 800;
+    height: 38px;
+    justify-content: center;
+    width: 38px;
+}
+
+nav {
+    display: grid;
+    gap: 6px;
+}
+
+nav button {
+    background: transparent;
+    border: 0;
+    border-radius: 7px;
+    color: #344156;
+    cursor: pointer;
+    font: inherit;
+    padding: 10px 12px;
+    text-align: left;
+}
+
+nav button.active,
+nav button:hover {
+    background: #e8f2ef;
+    color: #0c5b46;
+}
+
+.content {
+    min-width: 0;
+    padding: 28px;
+}
+
+.topbar {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+h1,
+h2,
+p {
+    margin: 0;
+}
+
+h1 {
+    font-size: 28px;
+}
+
+h2 {
+    font-size: 22px;
+}
+
+.topbar p,
+.emptyPanel p {
+    color: #657184;
+    margin-top: 6px;
+}
+
+.statusPill {
+    background: #fff7dd;
+    border: 1px solid #f0d98d;
+    border-radius: 999px;
+    color: #806000;
+    font-size: 13px;
+    padding: 7px 12px;
+}
+
+.panel {
+    background: #ffffff;
+    border: 1px solid #d9e0ea;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.sectionHeader {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+
+.eyebrow {
+    color: #69778c;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.primaryButton {
+    background: #126c55;
+    border: 0;
+    border-radius: 7px;
+    color: #ffffff;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    padding: 10px 14px;
+}
+
+.statusGrid,
+.settingsGrid {
+    display: grid;
+    gap: 14px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 18px;
+}
+
+.statusCard {
+    border: 1px solid #dde4ee;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.statusCard span,
+.runtimeBox span {
+    color: #69778c;
+    display: block;
+    font-size: 13px;
+    margin-bottom: 8px;
+}
+
+.statusCard strong,
+.runtimeBox strong {
+    display: block;
+    margin-bottom: 8px;
+}
+
+.statusCard p {
+    color: #657184;
+    font-size: 14px;
+}
+
+.runtimeBox {
+    border-top: 1px solid #e1e6ef;
+    display: grid;
+    gap: 12px;
+    padding-top: 18px;
+}
+
+code {
+    color: #2b445f;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    overflow-wrap: anywhere;
+}
+
+.settingsGrid label {
+    align-items: center;
+    border: 1px solid #dde4ee;
+    border-radius: 8px;
+    display: flex;
+    justify-content: space-between;
+    padding: 14px;
+}
+
+.settingsGrid input {
+    height: 18px;
+    width: 18px;
+}
+
+.emptyPanel {
+    min-height: 240px;
+}
