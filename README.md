@@ -106,6 +106,21 @@ cd app && ./scripts/build-app.sh
 
 這個腳本會重建前端、重新編譯 production binary、覆蓋現有 app bundle 內的執行檔，並在可用時做 ad-hoc codesign。
 
+## 安裝
+
+正式 release：
+
+1. 到 GitHub Releases 下載 `ClamAV-Desktop-<version>-macos.zip`
+2. 解壓縮後把 `ClamAV Desktop.app` 拖到 `/Applications`
+3. 第一次啟動前，若系統顯示來自網路下載的提示，先在 Finder 對 App 按右鍵，選「打開」
+4. 之後可從 Launchpad、Spotlight 或 `/Applications` 啟動
+
+本機開發 build（推薦）：
+
+1. 目前 `wails build` 與 `./scripts/build-app.sh` 產出的 App 是 ad-hoc 簽署，不是 Apple notarized release
+2. 若看到 Gatekeeper 警告，請用 Finder 右鍵「打開」一次，或在測試機自行移除 quarantine attribute
+3. 正式對外發布時，請改用 Developer ID signing + notarization 流程；完整步驟見 `docs/developer-id-release.md`
+
 ## 測試
 
 ```bash
@@ -123,6 +138,8 @@ cd app/frontend && npm run build
 ## CI
 
 GitHub Actions 目前在發佈 GitHub Release 時執行：前端安裝、typecheck、build、`go test`、`go vet`、`wails build -skipbindings`。
+
+tag release 產物目前會附上 macOS zip，但若未接上 Developer ID signing 與 notarization，仍可能被 Gatekeeper 警告。
 
 ## 授權
 
