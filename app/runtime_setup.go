@@ -83,7 +83,7 @@ func runtimeSetupSteps(profile RuntimeProfile, health RuntimeHealth) []RuntimeSe
 		steps = append(steps, RuntimeSetupStep{
 			Title:   "建立 Homebrew 設定檔",
 			Detail:  "Homebrew 安裝後通常只有 .sample，需建立 freshclam.conf 與 clamd.conf。",
-			Command: "cp \"$(brew --prefix)/etc/clamav/freshclam.conf.sample\" \"$(brew --prefix)/etc/clamav/freshclam.conf\"\ncp \"$(brew --prefix)/etc/clamav/clamd.conf.sample\" \"$(brew --prefix)/etc/clamav/clamd.conf\"\nperl -0pi -e 's/^Example/#Example/m' \"$(brew --prefix)/etc/clamav/freshclam.conf\" \"$(brew --prefix)/etc/clamav/clamd.conf\"",
+			Command: "cp \"$(brew --prefix)/etc/clamav/freshclam.conf.sample\" \"$(brew --prefix)/etc/clamav/freshclam.conf\" &&\ncp \"$(brew --prefix)/etc/clamav/clamd.conf.sample\" \"$(brew --prefix)/etc/clamav/clamd.conf\" &&\nperl -0pi -e 's/^Example/#Example/m' \"$(brew --prefix)/etc/clamav/freshclam.conf\" \"$(brew --prefix)/etc/clamav/clamd.conf\"",
 		})
 	}
 
@@ -102,9 +102,9 @@ func runtimeSetupSteps(profile RuntimeProfile, health RuntimeHealth) []RuntimeSe
 		steps = append(steps, RuntimeSetupStep{
 			Title:  "設定並啟動 clamd",
 			Detail: "掃描功能需要 clamd 啟動並提供 Unix socket。",
-			Command: "mkdir -p " + shellQuote(filepath.Dir(socketPath)) + "\n" +
-				"mkdir -p " + shellQuote(filepath.Dir(logPath)) + "\n" +
-				"perl -0pi -e 's|^#?LocalSocket .*|LocalSocket " + socketPath + "|m; s|^#?DatabaseDirectory .*|DatabaseDirectory " + databasePath + "|m; s|^#?LogFile .*|LogFile " + logPath + "|m or $_ .= \"\\nLogFile " + logPath + "\\n\"' \"$(brew --prefix)/etc/clamav/clamd.conf\"\n" +
+			Command: "mkdir -p " + shellQuote(filepath.Dir(socketPath)) + " &&\n" +
+				"mkdir -p " + shellQuote(filepath.Dir(logPath)) + " &&\n" +
+				"perl -0pi -e 's|^#?LocalSocket .*|LocalSocket " + socketPath + "|m; s|^#?DatabaseDirectory .*|DatabaseDirectory " + databasePath + "|m; s|^#?LogFile .*|LogFile " + logPath + "|m or $_ .= \"\\nLogFile " + logPath + "\\n\"' \"$(brew --prefix)/etc/clamav/clamd.conf\" &&\n" +
 				"brew services restart clamav",
 		})
 	}

@@ -368,6 +368,18 @@ nav button:focus-visible {
     font-size: 14px;
 }
 
+.logSection {
+    gap: 8px;
+}
+
+.logSection h3 {
+    margin-bottom: 0;
+}
+
+.logSection .settingHint {
+    margin-bottom: 2px;
+}
+
 .aboutSection {
     display: grid;
     gap: 12px;
@@ -427,6 +439,23 @@ nav button:focus-visible {
     align-items: center;
     display: flex;
     gap: 12px;
+}
+
+.setupClose {
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 22px;
+    line-height: 1;
+    margin-left: auto;
+    padding: 4px 10px;
+}
+
+.setupClose:hover {
+    background: #eef2f8;
+    color: #1f2937;
 }
 
 .setupMessage {

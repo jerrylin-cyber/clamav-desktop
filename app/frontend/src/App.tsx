@@ -102,6 +102,7 @@ function App() {
     const [status, setStatus] = useState<main.AppStatus | null>(null);
     const [aboutInfo, setAboutInfo] = useState<main.AboutInfo | null>(null);
     const [runtimeSetup, setRuntimeSetup] = useState<main.RuntimeSetupStatus | null>(null);
+    const [forceShowSetup, setForceShowSetup] = useState(false);
     const [settings, setSettings] = useState<main.Settings | null>(null);
     const [systemPermissions, setSystemPermissions] = useState<main.SystemPermissionStatus | null>(null);
     const [notificationPermission, setNotificationPermission] = useState<PermissionDisplayStatus>({status: "unknown"});
@@ -241,6 +242,22 @@ function App() {
             .catch((error) => {
                 toastError("ClamAV runtime 檢測失敗", error);
             });
+    }
+
+    function openRuntimeSetupGuide() {
+        setForceShowSetup(true);
+        loadRuntimeSetup();
+    }
+
+    function refreshSettingsView() {
+        GetSettings().then((loaded) => {
+            setSettings(loaded);
+            setSchedulePathsText(loaded.scanSchedule.paths.join("\n"));
+        });
+        GetAppStatus().then(setStatus);
+        loadLoginItemStatus();
+        loadSystemPermissionStatus();
+        loadRuntimeSetup();
     }
 
     function loadAboutInfo() {
@@ -1328,7 +1345,7 @@ function App() {
                                     "removeSettings",
                                     "重置設定檔",
                                     ["即將把設定檔還原為預設值，此操作無法復原。"],
-                                    () => { GetSettings().then(setSettings); }
+                                    refreshSettingsView
                                 )}
                                 type="button"
                             >
@@ -1448,8 +1465,9 @@ function App() {
                             </div>
                         )}
                     </div>
-                    <div className="runtimeBox">
+                    <div className="runtimeBox logSection">
                         <h3>freshclam.log</h3>
+                        <p className="settingHint">記錄病毒碼更新流程，可用來確認更新是否成功、網路或權限是否異常。</p>
                         {freshclamLogLines.length === 0 ? (
                             <p>尚無紀錄（共用執行環境尚未安裝或無法讀取）。</p>
                         ) : (
@@ -1463,8 +1481,9 @@ function App() {
                             </div>
                         )}
                     </div>
-                    <div className="runtimeBox">
+                    <div className="runtimeBox logSection">
                         <h3>clamd.log</h3>
+                        <p className="settingHint">記錄 clamd 背景服務狀態，可用來確認 daemon 是否啟動、socket 或病毒碼載入是否正常。</p>
                         {clamdLogLines.length === 0 ? (
                             <p>尚無紀錄（共用執行環境尚未安裝或無法讀取）。</p>
                         ) : (
@@ -1585,6 +1604,7 @@ function App() {
                         <div className="headerActions">
                             <div className="btnGroup">
                                 <button className="secondaryButton" onClick={() => { loadAboutInfo(); loadLoginItemStatus(); loadRuntimeSetup(); }} type="button">重新整理</button>
+                                <button className="secondaryButton" onClick={openRuntimeSetupGuide} type="button">安裝／啟動引導</button>
                                 <button className="secondaryButton" onClick={() => openExternalURL(aboutInfo.officialUrl)} type="button">ClamAV 官網</button>
                                 <button className="secondaryButton" onClick={() => openExternalURL(aboutInfo.githubUrl)} type="button">GitHub Repo</button>
                             </div>
@@ -1622,7 +1642,7 @@ function App() {
                         <h3>背景與登入狀態</h3>
                         <div className="pathTable">
                             <div className="pathRow">
-                                <span>登入時自動啟動（Login item）</span>
+                                <span>登入時自動啟動</span>
                                 <strong>{formatLoginItemStatus(loginItemStatus)}</strong>
                             </div>
                             <div className="pathRow">
@@ -1727,7 +1747,7 @@ function App() {
             </aside>
             <main className="content">
                 {renderPage()}
-                {runtimeSetup?.blocking && (
+                {runtimeSetup && (runtimeSetup.blocking || forceShowSetup) && (
                     <div className="setupOverlay" role="dialog" aria-modal="true">
                         <div className="setupDialog">
                             <div className="setupHeader">
@@ -1736,6 +1756,9 @@ function App() {
                                     <p className="eyebrow">ClamAV 檢測</p>
                                     <h2>需要完成 ClamAV 安裝或啟動</h2>
                                 </div>
+                                {!runtimeSetup.blocking && (
+                                    <button className="setupClose" onClick={() => setForceShowSetup(false)} type="button" aria-label="關閉">×</button>
+                                )}
                             </div>
                             <p className="setupMessage">{runtimeSetup.message}</p>
                             <div className="checksTable">
@@ -1766,6 +1789,9 @@ function App() {
                                 ))}
                             </div>
                             <div className="setupActions">
+                                {!runtimeSetup.blocking && (
+                                    <button className="secondaryButton" onClick={() => setForceShowSetup(false)} type="button">關閉</button>
+                                )}
                                 <button className="secondaryButton" onClick={runDatabaseUpdate} type="button">更新病毒碼</button>
                                 <button className="primaryButton" onClick={loadRuntimeSetup} type="button">重新檢測</button>
                             </div>

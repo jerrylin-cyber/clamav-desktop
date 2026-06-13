@@ -2,6 +2,38 @@
 
 macOS 桌面應用，為 [ClamAV](https://www.clamav.net/) 提供原生 GUI 操作介面。基於 **Wails v2**（Go 1.23 + React 18 + TypeScript）建置。
 
+## 截圖
+
+### 儀表板
+
+<img src="images/image4.png" alt="ClamAV Desktop 儀表板" width="720">
+
+### 掃描
+
+<img src="images/image5.png" alt="ClamAV Desktop 掃描頁面" width="720">
+
+### 排程
+
+<img src="images/image6.png" alt="ClamAV Desktop 排程頁面" width="720">
+
+### 設定
+
+<img src="images/image7.png" alt="ClamAV Desktop 設定頁面" width="720">
+
+### 紀錄
+
+<img src="images/image8.png" alt="ClamAV Desktop 紀錄頁面" width="720">
+
+### 關於
+
+<img src="images/image3.png" alt="ClamAV Desktop 關於頁面" width="720">
+
+### ClamAV 安裝/啟動引導
+
+<img src="images/image.png" alt="ClamAV Desktop 安裝與啟動引導上半部" width="720">
+
+<img src="images/image2.png" alt="ClamAV Desktop 安裝與啟動引導下半部" width="720">
+
 ## 功能
 
 - **儀表板** — 系統總覽：執行環境模式、健康檢查（clamd PING、binary、config、database、socket）、病毒碼資料庫狀態、最近掃描摘要
@@ -49,6 +81,7 @@ clamav-desktop/
 │           ├── App.css
 │           └── style.css         # 全域樣式 + Nunito 字體
 │
+├── images/                       # README 截圖
 ├── docs/
 └── .github/workflows/            # CI pipeline
 ```
