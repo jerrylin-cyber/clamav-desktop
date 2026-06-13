@@ -14,6 +14,7 @@ jobs:
     env:
       APP_NAME: ClamAV Desktop
       APP_ZIP: ClamAV-Desktop-${{ github.ref_name }}-macos.zip
+      KEYCHAIN_NAME: build.keychain
     defaults:
       run:
         working-directory: app
@@ -57,7 +58,83 @@ jobs:
       - name: Wails build
         run: "$(go env GOPATH)/bin/wails build -skipbindings"
 
-      - name: Package app bundle
+      - name: Import Developer ID certificate
+        env:
+          APPLE_DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+          APPLE_NOTARY_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_NOTARY_KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -z "${APPLE_DEVELOPER_ID_CERT_P12_BASE64}" ] || [ -z "${APPLE_DEVELOPER_ID_CERT_PASSWORD}" ] || [ -z "${APPLE_NOTARY_KEYCHAIN_PASSWORD}" ]; then
+            echo "缺少簽署必填 secrets：APPLE_DEVELOPER_ID_CERT_P12_BASE64 / APPLE_DEVELOPER_ID_CERT_PASSWORD / APPLE_NOTARY_KEYCHAIN_PASSWORD" >&2
+            exit 1
+          fi
+
+          security create-keychain -p "${APPLE_NOTARY_KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+          security default-keychain -s "${KEYCHAIN_NAME}"
+          security unlock-keychain -p "${APPLE_NOTARY_KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_NAME}"
+
+          echo "${APPLE_DEVELOPER_ID_CERT_P12_BASE64}" | base64 --decode > /tmp/developer-id.p12
+          security import /tmp/developer-id.p12 \
+            -k "${KEYCHAIN_NAME}" \
+            -P "${APPLE_DEVELOPER_ID_CERT_PASSWORD}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s -k "${APPLE_NOTARY_KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+
+      - name: Codesign app bundle
+        env:
+          APPLE_NOTARY_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_NOTARY_KEYCHAIN_PASSWORD }}
+        run: |
+          SIGN_IDENTITY=$(security find-identity -v -p codesigning "${KEYCHAIN_NAME}" | awk '/Developer ID Application/{print $2; exit}')
+          if [ -z "${SIGN_IDENTITY}" ]; then
+            echo "找不到 Developer ID Application 簽章身份" >&2
+            security find-identity -v -p codesigning "${KEYCHAIN_NAME}" || true
+            exit 1
+          fi
+
+          echo "Using signing identity hash: ${SIGN_IDENTITY}"
+          codesign --force --deep --options runtime --timestamp \
+            --sign "${SIGN_IDENTITY}" \
+            "build/bin/${APP_NAME}.app"
+
+      - name: Verify code signature
+        run: |
+          codesign --verify --deep --strict --verbose=2 "build/bin/${APP_NAME}.app"
+          codesign -dv --verbose=4 "build/bin/${APP_NAME}.app"
+
+      - name: Package app bundle for notarization
+        run: ditto -c -k --sequesterRsrc --keepParent "build/bin/${APP_NAME}.app" "build/bin/${APP_ZIP}"
+
+      - name: Notarize app zip
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          if [ -z "${APPLE_API_KEY_ID}" ] || [ -z "${APPLE_API_ISSUER_ID}" ] || [ -z "${APPLE_API_PRIVATE_KEY}" ]; then
+            echo "缺少 notarization 必填 secrets：APPLE_API_KEY_ID / APPLE_API_ISSUER_ID / APPLE_API_PRIVATE_KEY" >&2
+            exit 1
+          fi
+
+          API_KEY_FILE="/tmp/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "${APPLE_API_PRIVATE_KEY}" > "${API_KEY_FILE}"
+
+          xcrun notarytool submit "build/bin/${APP_ZIP}" \
+            --key "${API_KEY_FILE}" \
+            --key-id "${APPLE_API_KEY_ID}" \
+            --issuer "${APPLE_API_ISSUER_ID}" \
+            --wait
+
+      - name: Staple notarization ticket
+        run: |
+          xcrun stapler staple "build/bin/${APP_NAME}.app"
+          spctl -a -vvv --type execute "build/bin/${APP_NAME}.app"
+
+      - name: Repackage stapled app bundle
         run: ditto -c -k --sequesterRsrc --keepParent "build/bin/${APP_NAME}.app" "build/bin/${APP_ZIP}"
 
       - name: Publish release asset
