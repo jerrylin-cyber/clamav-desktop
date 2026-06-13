@@ -1,6 +1,6 @@
 # scripts/
 
-此目錄包含三支本機開發用的輔助腳本。所有腳本均需在 `app/` 目錄層級執行，或由腳本自行切換工作目錄。
+此目錄包含本機開發與維運用的輔助腳本。所有腳本均需在 `app/` 目錄層級執行，或由腳本自行切換工作目錄。
 
 ---
 
@@ -111,3 +111,37 @@ build/runtime-artifacts/
 ```
 
 任一步驟失敗即中止（`set -e`），並回傳非零 exit code。
+
+---
+
+## uninstall-app.sh
+
+**用途**：移除 ClamAV Desktop app 與其設定檔，並提示 ClamAV runtime 的解除安裝方式。
+
+### 執行方式
+
+```sh
+# 互動模式：破壞性操作前逐項確認（建議）
+./scripts/uninstall-app.sh
+
+# 對 app 與 app 設定檔的移除自動回答 yes（仍不會自動 sudo 或移除 ClamAV）
+./scripts/uninstall-app.sh -y
+```
+
+### 執行流程
+
+1. **偵測執行狀態** — 若 app（含狀態列）仍在執行，先嘗試正常結束；必要時詢問是否強制終止
+2. **移除 app 與設定檔** — 刪除 app bundle、`~/Library/Application Support/ClamAVDesktop`、`~/Library/Logs/ClamAVDesktop` 與兩個 LaunchAgents
+3. **系統 runtime（需 sudo）** — 偵測 app 曾安裝的 `/Library/LaunchDaemons/*clamavdesktop*` 與系統路徑，詢問是否以 sudo 移除（否則印出手動指令）
+4. **ClamAV runtime** — 偵測 Homebrew／官方安裝位置，提示 `brew uninstall clamav` 等解除安裝方式（**不會自動移除**）
+
+### 移除範圍
+
+| 類別 | 路徑 | 移除方式 |
+|------|------|----------|
+| app bundle | `/Applications`、`~/Applications`、`build/bin` 內的 `ClamAV Desktop.app` | 自動（確認後） |
+| 設定／資料 | `~/Library/Application Support/ClamAVDesktop` | 自動（確認後） |
+| 日誌 | `~/Library/Logs/ClamAVDesktop` | 自動（確認後） |
+| LaunchAgents | `com.lazyjerry.clamavdesktop.agent` / `.clamscan-downloads` | 自動（確認後） |
+| 系統 LaunchDaemons | `/Library/LaunchDaemons/com.lazyjerry.clamavdesktop.{freshclam,clamd}` | sudo（確認後）或印出手動指令 |
+| ClamAV runtime | Homebrew `/opt/homebrew`、`/usr/local`；官方 `/usr/local/clamav` | 僅提示，不自動移除 |

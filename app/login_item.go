@@ -45,14 +45,12 @@ func (s *LoginItemService) Register(startHidden bool) error {
 }
 
 func (s *LoginItemService) Unregister() error {
-	var smErr error
 	if s.shouldUseSMAppService() {
-		smErr = unregisterSMAppService()
+		// 忽略 SMAppService 的錯誤：app 可能從未透過 SMAppService 登記，
+		// 或在開發環境中不在正式 bundle 內，此時 unregister 失敗是預期行為
+		_ = unregisterSMAppService()
 	}
-	if err := s.unregisterLaunchAgent(); err != nil {
-		return err
-	}
-	return smErr
+	return s.unregisterLaunchAgent()
 }
 
 func (s *LoginItemService) Status() LoginItemStatus {

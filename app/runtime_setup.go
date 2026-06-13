@@ -98,11 +98,13 @@ func runtimeSetupSteps(profile RuntimeProfile, health RuntimeHealth) []RuntimeSe
 	if firstFailedRuntimeCheck(health.Checks, "clamd socket", "clamd ping", "clamd commands") != nil {
 		databasePath := filepath.Join(userHomeDir(), "Library/Application Support/ClamAVDesktop/Database")
 		socketPath := defaultHomebrewSocketPath(brewPrefix)
+		logPath := filepath.Join(userHomeDir(), "Library/Logs/ClamAVDesktop/clamd.log")
 		steps = append(steps, RuntimeSetupStep{
 			Title:  "設定並啟動 clamd",
 			Detail: "掃描功能需要 clamd 啟動並提供 Unix socket。",
 			Command: "mkdir -p " + shellQuote(filepath.Dir(socketPath)) + "\n" +
-				"perl -0pi -e 's|^#?LocalSocket .*|LocalSocket " + socketPath + "|m; s|^#?DatabaseDirectory .*|DatabaseDirectory " + databasePath + "|m' \"$(brew --prefix)/etc/clamav/clamd.conf\"\n" +
+				"mkdir -p " + shellQuote(filepath.Dir(logPath)) + "\n" +
+				"perl -0pi -e 's|^#?LocalSocket .*|LocalSocket " + socketPath + "|m; s|^#?DatabaseDirectory .*|DatabaseDirectory " + databasePath + "|m; s|^#?LogFile .*|LogFile " + logPath + "|m or $_ .= \"\\nLogFile " + logPath + "\\n\"' \"$(brew --prefix)/etc/clamav/clamd.conf\"\n" +
 				"brew services restart clamav",
 		})
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -214,7 +215,8 @@ func (a *App) GetAboutInfo() AboutInfo {
 		Commands: []CommandInfo{
 			{Label: "查看版本", Command: shellQuote(profile.ClamScanPath) + " --version"},
 			{Label: "更新病毒碼", Command: shellQuote(profile.FreshclamPath) + " --foreground --config-file=" + shellQuote(freshclamConfig)},
-			{Label: "掃描資料夾", Command: shellQuote(profile.ClamScanPath) + " --database=" + shellQuote(database.Path) + " --recursive " + shellQuote(filepath.Join(homeDir, "Downloads"))},
+			{Label: "掃描資料夾（以下載資料夾為例）", Command: shellQuote(profile.ClamScanPath) + " --database=" + shellQuote(database.Path) + " --recursive \"$HOME/Downloads\""},
+			{Label: "建立每日掃描排程", Command: scheduledClamScanCommand(profile.ClamScanPath, database.Path, homeDir)},
 			{Label: "檢查 clamd", Command: "printf 'zPING\\0' | nc -U " + shellQuote(profile.ClamdSocket)},
 		},
 		OfficialURL: "https://www.clamav.net/",
@@ -242,30 +244,85 @@ func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
+func scheduledClamScanCommand(clamScanPath string, databasePath string, homeDir string) string {
+	plistPath := filepath.Join(homeDir, "Library/LaunchAgents/com.lazyjerry.clamavdesktop.clamscan-downloads.plist")
+	logDir := filepath.Join(homeDir, "Library/Logs/ClamAVDesktop")
+	outPath := filepath.Join(logDir, "clamscan-schedule.log")
+	errPath := filepath.Join(logDir, "clamscan-schedule.err.log")
+	scanPath := filepath.Join(homeDir, "Downloads")
+
+	return strings.Join([]string{
+		"mkdir -p " + shellQuote(filepath.Dir(plistPath)) + " " + shellQuote(logDir) + " && cat > " + shellQuote(plistPath) + " <<'PLIST'",
+		scheduledClamScanPlist(clamScanPath, databasePath, scanPath, outPath, errPath),
+		"PLIST",
+		"launchctl unload " + shellQuote(plistPath) + " 2>/dev/null; launchctl load " + shellQuote(plistPath),
+	}, "\n")
+}
+
+func scheduledClamScanPlist(clamScanPath string, databasePath string, scanPath string, outPath string, errPath string) string {
+	return strings.Join([]string{
+		xml.Header + `<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">`,
+		`<plist version="1.0">`,
+		`<dict>`,
+		`	<key>Label</key>`,
+		`	<string>com.lazyjerry.clamavdesktop.clamscan-downloads</string>`,
+		`	<key>ProgramArguments</key>`,
+		`	<array>`,
+		`		<string>` + plistEscape(clamScanPath) + `</string>`,
+		`		<string>--database=` + plistEscape(databasePath) + `</string>`,
+		`		<string>--recursive</string>`,
+		`		<string>` + plistEscape(scanPath) + `</string>`,
+		`	</array>`,
+		`	<key>StartCalendarInterval</key>`,
+		`	<dict>`,
+		`		<key>Hour</key>`,
+		`		<integer>12</integer>`,
+		`		<key>Minute</key>`,
+		`		<integer>0</integer>`,
+		`	</dict>`,
+		`	<key>StandardOutPath</key>`,
+		`	<string>` + plistEscape(outPath) + `</string>`,
+		`	<key>StandardErrorPath</key>`,
+		`	<string>` + plistEscape(errPath) + `</string>`,
+		`</dict>`,
+		`</plist>`,
+		"",
+	}, "\n")
+}
+
 func (a *App) SaveSettings(settings Settings) (Settings, error) {
 	current, err := a.settingsStore.Load()
 	if err != nil {
+		_ = a.logs().WriteAppLog("error", "儲存設定失敗（讀取現有設定）："+err.Error())
 		return Settings{}, err
 	}
 	if loginItemSettingsChanged(current, settings) {
 		if err := a.loginItems().Apply(settings); err != nil {
+			_ = a.logs().WriteAppLog("error", "儲存設定失敗（套用 login item）："+err.Error())
 			return Settings{}, err
 		}
 	}
 	if err := a.settingsStore.Save(settings); err != nil {
+		_ = a.logs().WriteAppLog("error", "儲存設定失敗（寫入檔案）："+err.Error())
 		return Settings{}, err
 	}
 	saved, err := a.settingsStore.Load()
 	if err != nil {
+		_ = a.logs().WriteAppLog("error", "儲存設定失敗（驗證回讀）："+err.Error())
 		return Settings{}, err
 	}
+	_ = a.logs().WriteAppLog("info", "設定已儲存")
 	a.wakeBackgroundWorker()
 	return saved, nil
 }
 
 func loginItemSettingsChanged(current Settings, next Settings) bool {
-	return current.Login.LaunchAtLogin != next.Login.LaunchAtLogin ||
-		current.Background.StartHidden != next.Background.StartHidden
+	if current.Login.LaunchAtLogin != next.Login.LaunchAtLogin {
+		return true
+	}
+	// startHidden 只影響 LaunchAgent plist 的 -j flag，
+	// 只有在登入時啟動已開啟時，變更才需要重新套用 login item
+	return next.Login.LaunchAtLogin && current.Background.StartHidden != next.Background.StartHidden
 }
 
 func (a *App) GetLoginItemStatus() LoginItemStatus {
@@ -278,6 +335,10 @@ func (a *App) OpenFullDiskAccessSettings() error {
 
 func (a *App) OpenNotificationSettings() error {
 	return a.systemSettingsService().OpenNotifications(a.context())
+}
+
+func (a *App) GetSystemPermissionStatus() SystemPermissionStatus {
+	return a.systemSettingsService().PermissionStatus()
 }
 
 func (a *App) GetDatabaseStatus() (DatabaseStatus, error) {
@@ -621,7 +682,6 @@ func commonScanPaths() []ScanPathPreset {
 	if homeDir != "" {
 		candidates = append(candidates,
 			ScanPathPreset{Label: "家目錄", Path: homeDir},
-			ScanPathPreset{Label: "桌面", Path: filepath.Join(homeDir, "Desktop")},
 			ScanPathPreset{Label: "下載", Path: filepath.Join(homeDir, "Downloads")},
 		)
 	}

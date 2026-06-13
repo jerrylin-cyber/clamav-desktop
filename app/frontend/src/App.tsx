@@ -10,6 +10,7 @@ import {
     GetLoginItemStatus,
     GetRuntimeSetupStatus,
     GetSettings,
+    GetSystemPermissionStatus,
     ListAppLogEntries,
     ListQuarantineRecords,
     ListScanJobs,
@@ -34,7 +35,7 @@ import {
     UpdateDatabase
 } from "../wailsjs/go/main/App";
 import {main} from "../wailsjs/go/models";
-import {BrowserOpenURL, EventsOn} from "../wailsjs/runtime/runtime";
+import {BrowserOpenURL, CheckNotificationAuthorization, EventsOn} from "../wailsjs/runtime/runtime";
 
 const pages = [
     {id: "dashboard", label: "儀表板"},
@@ -89,6 +90,11 @@ type DialogState = {
     onConfirm?: () => void;
 };
 
+type PermissionDisplayStatus = {
+    status: string;
+    message?: string;
+};
+
 const RESULTS_PAGE_SIZE = 25;
 
 function App() {
@@ -97,8 +103,8 @@ function App() {
     const [aboutInfo, setAboutInfo] = useState<main.AboutInfo | null>(null);
     const [runtimeSetup, setRuntimeSetup] = useState<main.RuntimeSetupStatus | null>(null);
     const [settings, setSettings] = useState<main.Settings | null>(null);
-    const [settingsMessage, setSettingsMessage] = useState("");
-    const [dashboardMessage, setDashboardMessage] = useState("");
+    const [systemPermissions, setSystemPermissions] = useState<main.SystemPermissionStatus | null>(null);
+    const [notificationPermission, setNotificationPermission] = useState<PermissionDisplayStatus>({status: "unknown"});
     const [loginItemStatus, setLoginItemStatus] = useState<main.LoginItemStatus | null>(null);
     const [schedulePathsText, setSchedulePathsText] = useState("");
     const [scanPathsText, setScanPathsText] = useState("");
@@ -110,17 +116,14 @@ function App() {
     const [scanMessage, setScanMessage] = useState("");
     const [freshclamEvents, setFreshclamEvents] = useState<FreshclamEventPayload[]>([]);
     const [quarantineRecords, setQuarantineRecords] = useState<main.QuarantineRecord[]>([]);
-    const [quarantineMessage, setQuarantineMessage] = useState("");
     const [appLogEntries, setAppLogEntries] = useState<main.LogEntry[]>([]);
     const [scanJobs, setScanJobs] = useState<main.ScanJob[]>([]);
     const [freshclamLogLines, setFreshclamLogLines] = useState<string[]>([]);
     const [clamdLogLines, setClamdLogLines] = useState<string[]>([]);
-    const [logsMessage, setLogsMessage] = useState("");
     const [resultsJobs, setResultsJobs] = useState<main.ScanJob[]>([]);
     const [resultsJobId, setResultsJobId] = useState("");
     const [resultsItems, setResultsItems] = useState<main.ScanResult[]>([]);
     const [resultsFilter, setResultsFilter] = useState("all");
-    const [resultsMessage, setResultsMessage] = useState("");
     const [toasts, setToasts] = useState<ToastItem[]>([]);
     const [dialog, setDialog] = useState<DialogState | null>(null);
     const [resultsSearch, setResultsSearch] = useState("");
@@ -176,6 +179,12 @@ function App() {
     }, [activePage]);
 
     useEffect(() => {
+        if (activePage === "settings") {
+            loadSystemPermissionStatus();
+        }
+    }, [activePage]);
+
+    useEffect(() => {
         if (activePage === "results" || activePage === "dashboard") {
             loadResultsJobs();
         }
@@ -196,6 +205,10 @@ function App() {
             window.setTimeout(() => dismissToast(id), 4500);
         }
         return id;
+    }
+
+    function toastError(title: string, error: unknown) {
+        pushToast("error", title, error instanceof Error ? error.message : undefined);
     }
 
     function showInfoDialog(title: string, body: string[]) {
@@ -226,7 +239,7 @@ function App() {
         GetRuntimeSetupStatus()
             .then(setRuntimeSetup)
             .catch((error) => {
-                setSettingsMessage(error instanceof Error ? error.message : "ClamAV runtime 檢測失敗");
+                toastError("ClamAV runtime 檢測失敗", error);
             });
     }
 
@@ -234,7 +247,7 @@ function App() {
         GetAboutInfo()
             .then(setAboutInfo)
             .catch((error) => {
-                setSettingsMessage(error instanceof Error ? error.message : "讀取關於資訊失敗");
+                toastError("讀取關於資訊失敗", error);
             });
     }
 
@@ -242,30 +255,41 @@ function App() {
         GetLoginItemStatus()
             .then(setLoginItemStatus)
             .catch((error) => {
-                setSettingsMessage(error instanceof Error ? error.message : "讀取 login item 狀態失敗");
+                toastError("讀取 login item 狀態失敗", error);
+            });
+    }
+
+    function loadSystemPermissionStatus() {
+        GetSystemPermissionStatus()
+            .then(setSystemPermissions)
+            .catch((error) => {
+                toastError("讀取 macOS 權限狀態失敗", error);
+            });
+        CheckNotificationAuthorization()
+            .then((authorized) => {
+                setNotificationPermission({status: authorized ? "authorized" : "denied"});
+            })
+            .catch((error) => {
+                setNotificationPermission({
+                    status: "unknown",
+                    message: error instanceof Error ? error.message : "無法讀取 Notifications 權限狀態",
+                });
             });
     }
 
     function runDatabaseUpdate() {
-        setSettingsMessage("病毒碼更新中");
-        setDashboardMessage("病毒碼更新中");
         setFreshclamEvents([]);
         const pendingId = pushToast("pending", "病毒碼更新中", "正在向 ClamAV 伺服器同步病毒碼");
         UpdateDatabase()
             .then(() => {
-                setSettingsMessage("病毒碼已更新");
-                setDashboardMessage("病毒碼已更新");
                 dismissToast(pendingId);
                 pushToast("success", "病毒碼已更新");
                 refreshStatus();
                 loadRuntimeSetup();
             })
             .catch((error) => {
-                const message = error instanceof Error ? error.message : "病毒碼更新失敗";
-                setSettingsMessage(message);
-                setDashboardMessage(message);
                 dismissToast(pendingId);
-                pushToast("error", "病毒碼更新失敗", message);
+                toastError("病毒碼更新失敗", error);
                 refreshStatus();
                 loadRuntimeSetup();
             });
@@ -279,15 +303,14 @@ function App() {
         const next = JSON.parse(JSON.stringify(settings)) as main.Settings;
         mutator(next);
         setSettings(next);
-        setSettingsMessage("儲存中");
         SaveSettings(next)
             .then((saved) => {
                 setSettings(saved);
-                setSettingsMessage("已儲存");
                 loadLoginItemStatus();
+                pushToast("success", "設定已儲存");
             })
             .catch((error) => {
-                setSettingsMessage(error instanceof Error ? error.message : "設定儲存失敗");
+                toastError("設定儲存失敗", error);
             });
     }
 
@@ -295,8 +318,7 @@ function App() {
         key: keyof main.UserDataRemovalOptions,
         title: string,
         body: string[],
-        onDone?: () => void,
-        setMessage?: (message: string) => void
+        onDone?: () => void
     ) {
         showConfirmDialog(title, body, () => {
             const options: main.UserDataRemovalOptions = {
@@ -313,14 +335,12 @@ function App() {
                     const removed = result?.removed?.length ?? 0;
                     const skipped = result?.skipped?.length ?? 0;
                     const message = `已移除 ${removed} 個項目，略過 ${skipped} 個不存在項目`;
-                    setMessage?.(message);
                     dismissToast(pendingId);
                     pushToast("success", title, message);
                     onDone?.();
                 })
                 .catch((error) => {
                     const message = error instanceof Error ? error.message : `${title}失敗`;
-                    setMessage?.(message);
                     dismissToast(pendingId);
                     pushToast("error", `${title}失敗`, message);
                 });
@@ -406,7 +426,7 @@ function App() {
         SelectScanFiles()
             .then(addSchedulePaths)
             .catch((error) => {
-                setSettingsMessage(error instanceof Error ? error.message : "選擇檔案失敗");
+                toastError("選擇檔案失敗", error);
             });
     }
 
@@ -414,29 +434,29 @@ function App() {
         SelectScanFolder()
             .then((path) => addSchedulePaths(path ? [path] : []))
             .catch((error) => {
-                setSettingsMessage(error instanceof Error ? error.message : "選擇資料夾失敗");
+                toastError("選擇資料夾失敗", error);
             });
     }
 
     function openFullDiskAccessSettings() {
         OpenFullDiskAccessSettings()
-            .then(() => setSettingsMessage("已開啟 Full Disk Access 設定"))
+            .then(() => pushToast("info", "已開啟 Full Disk Access 設定"))
             .catch((error) => {
-                setSettingsMessage(error instanceof Error ? error.message : "無法開啟 Full Disk Access 設定");
+                toastError("無法開啟 Full Disk Access 設定", error);
             });
     }
 
     function openNotificationSettings() {
         OpenNotificationSettings()
-            .then(() => setSettingsMessage("已開啟 Notifications 設定"))
+            .then(() => pushToast("info", "已開啟 Notifications 設定"))
             .catch((error) => {
-                setSettingsMessage(error instanceof Error ? error.message : "無法開啟 Notifications 設定");
+                toastError("無法開啟 Notifications 設定", error);
             });
     }
 
     function explainRuntimeInstall() {
         loadRuntimeSetup();
-        setDashboardMessage("ClamAV Desktop 會偵測 Homebrew ClamAV；未通過時會顯示安裝與啟動引導。");
+        pushToast("info", "ClamAV 檢測", "ClamAV Desktop 會偵測 Homebrew ClamAV；未通過時會顯示安裝與啟動引導。");
     }
 
     function showRuntimeRemovalPrompt() {
@@ -565,35 +585,35 @@ function App() {
         ListQuarantineRecords()
             .then(setQuarantineRecords)
             .catch((error) => {
-                setQuarantineMessage(error instanceof Error ? error.message : "讀取隔離區失敗");
+                toastError("讀取隔離區失敗", error);
             });
     }
 
     function openQuarantineRecord(record: main.QuarantineRecord) {
         OpenQuarantineLocation(record).catch((error) => {
-            setQuarantineMessage(error instanceof Error ? error.message : "無法開啟位置");
+            toastError("無法開啟位置", error);
         });
     }
 
     function restoreQuarantineRecordAction(record: main.QuarantineRecord) {
         RestoreQuarantineRecord(record.id)
             .then((restored) => {
-                setQuarantineMessage("已還原檔案");
+                pushToast("success", "已還原檔案");
                 setQuarantineRecords((records) => records.map((item) => (item.id === restored.id ? restored : item)));
             })
             .catch((error) => {
-                setQuarantineMessage(error instanceof Error ? error.message : "還原失敗");
+                toastError("還原失敗", error);
             });
     }
 
     function moveQuarantineRecordToTrashAction(record: main.QuarantineRecord) {
         MoveQuarantineRecordToTrash(record.id)
             .then((trashed) => {
-                setQuarantineMessage("已移到垃圾桶");
+                pushToast("success", "已移到垃圾桶");
                 setQuarantineRecords((records) => records.map((item) => (item.id === trashed.id ? trashed : item)));
             })
             .catch((error) => {
-                setQuarantineMessage(error instanceof Error ? error.message : "移到垃圾桶失敗");
+                toastError("移到垃圾桶失敗", error);
             });
     }
 
@@ -601,14 +621,11 @@ function App() {
         requestPermanentDelete(record.originalPath || record.signature || record.id, () => {
             PermanentlyDeleteQuarantineRecord(record.id)
                 .then((deleted) => {
-                    setQuarantineMessage("已永久刪除");
                     pushToast("success", "已永久刪除");
                     setQuarantineRecords((records) => records.map((item) => (item.id === deleted.id ? deleted : item)));
                 })
                 .catch((error) => {
-                    const message = error instanceof Error ? error.message : "永久刪除失敗";
-                    setQuarantineMessage(message);
-                    pushToast("error", "永久刪除失敗", message);
+                    toastError("永久刪除失敗", error);
                 });
         });
     }
@@ -617,12 +634,12 @@ function App() {
         ListAppLogEntries(50)
             .then(setAppLogEntries)
             .catch((error) => {
-                setLogsMessage(error instanceof Error ? error.message : "讀取 App Log 失敗");
+                toastError("讀取 App Log 失敗", error);
             });
         ListScanJobs()
             .then(setScanJobs)
             .catch((error) => {
-                setLogsMessage(error instanceof Error ? error.message : "讀取掃描紀錄失敗");
+                toastError("讀取掃描紀錄失敗", error);
             });
         ReadFreshclamLog(100).then(setFreshclamLogLines);
         ReadClamdLog(100).then(setClamdLogLines);
@@ -632,15 +649,12 @@ function App() {
         const pendingId = pushToast("pending", "匯出診斷資訊中");
         ExportDiagnostics()
             .then((path) => {
-                setLogsMessage(`已匯出診斷報告：${path}`);
                 dismissToast(pendingId);
                 pushToast("success", "已匯出診斷報告", path);
             })
             .catch((error) => {
-                const message = error instanceof Error ? error.message : "匯出診斷資訊失敗";
-                setLogsMessage(message);
                 dismissToast(pendingId);
-                pushToast("error", "匯出診斷資訊失敗", message);
+                toastError("匯出診斷資訊失敗", error);
             });
     }
 
@@ -658,7 +672,7 @@ function App() {
                 loadResultsItems(jobId);
             })
             .catch((error) => {
-                setResultsMessage(error instanceof Error ? error.message : "讀取掃描紀錄失敗");
+                toastError("讀取掃描紀錄失敗", error);
             });
     }
 
@@ -666,7 +680,7 @@ function App() {
         LoadScanResults(jobId)
             .then(setResultsItems)
             .catch((error) => {
-                setResultsMessage(error instanceof Error ? error.message : "讀取掃描結果失敗");
+                toastError("讀取掃描結果失敗", error);
             });
     }
 
@@ -677,33 +691,33 @@ function App() {
 
     function openResultsItem(result: main.ScanResult) {
         OpenScanResultLocation(result).catch((error) => {
-            setResultsMessage(error instanceof Error ? error.message : "無法開啟位置");
+            toastError("無法開啟位置", error);
         });
     }
 
     function quarantineResultsItem(result: main.ScanResult) {
         QuarantineScanResult(result)
             .then(() => {
-                setResultsMessage("已隔離檔案");
+                pushToast("success", "已隔離檔案");
                 setResultsItems((results) =>
                     results.map((item) => (item.path === result.path ? {...item, status: "quarantined"} : item))
                 );
             })
             .catch((error) => {
-                setResultsMessage(error instanceof Error ? error.message : "隔離失敗");
+                toastError("隔離失敗", error);
             });
     }
 
     function moveResultsItemToTrash(result: main.ScanResult) {
         MoveScanResultToTrash(result)
             .then(() => {
-                setResultsMessage("已移到垃圾桶");
+                pushToast("success", "已移到垃圾桶");
                 setResultsItems((results) =>
                     results.map((item) => (item.path === result.path ? {...item, status: "trashed"} : item))
                 );
             })
             .catch((error) => {
-                setResultsMessage(error instanceof Error ? error.message : "移到垃圾桶失敗");
+                toastError("移到垃圾桶失敗", error);
             });
     }
 
@@ -711,16 +725,13 @@ function App() {
         requestPermanentDelete(result.path, () => {
             PermanentlyDeleteScanResult(result)
                 .then(() => {
-                    setResultsMessage("已永久刪除");
                     pushToast("success", "已永久刪除", result.path);
                     setResultsItems((results) =>
                         results.map((item) => (item.path === result.path ? {...item, status: "deleted"} : item))
                     );
                 })
                 .catch((error) => {
-                    const message = error instanceof Error ? error.message : "永久刪除失敗";
-                    setResultsMessage(message);
-                    pushToast("error", "永久刪除失敗", message);
+                    toastError("永久刪除失敗", error);
                 });
         });
     }
@@ -736,7 +747,6 @@ function App() {
                             <p className="eyebrow">系統狀態</p>
                             <div className="sectionTitleRow">
                                 <h2>儀表板</h2>
-                                <span className="settingsMessage">{dashboardMessage}</span>
                             </div>
                         </div>
                         <div className="headerActions">
@@ -841,13 +851,34 @@ function App() {
                             <h2>掃描</h2>
                         </div>
                         <div className="headerActions">
-                            <button className="secondaryButton" onClick={selectScanFiles} type="button">選擇檔案</button>
-                            <button className="secondaryButton" onClick={selectScanFolder} type="button">選擇資料夾</button>
-                            {scanPresets.map((preset) => (
-                                <button className="secondaryButton" key={preset.path} onClick={() => addScanPreset(preset)} type="button">{preset.label}</button>
-                            ))}
-                            <button className="secondaryButton" disabled={!scanProgress?.jobId} onClick={cancelScan} type="button">取消</button>
-                            <button className="primaryButton" onClick={startScan} type="button">開始掃描</button>
+                            <div className="btnGroup">
+                                <button className="secondaryButton" onClick={selectScanFiles} type="button">選擇檔案</button>
+                                <button className="secondaryButton" onClick={selectScanFolder} type="button">選擇資料夾</button>
+                                {scanPresets.length > 0 && (
+                                    <select
+                                        className="presetSelect"
+                                        onChange={(event) => {
+                                            const preset = scanPresets.find((item) => item.path === event.target.value);
+                                            if (preset) {
+                                                addScanPreset(preset);
+                                            }
+                                            event.target.value = "";
+                                        }}
+                                        value=""
+                                    >
+                                        <option value="" disabled>選擇目錄</option>
+                                        {scanPresets.map((preset) => (
+                                            <option key={preset.path} value={preset.path}>{preset.label}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                            <div className="btnGroup btnGroup--divided">
+                                <button className="secondaryButton" disabled={!scanProgress?.jobId} onClick={cancelScan} type="button">取消</button>
+                            </div>
+                            <div className="btnGroup btnGroup--divided">
+                                <button className="primaryButton ctaButton" onClick={startScan} type="button">開始掃描</button>
+                            </div>
                         </div>
                     </div>
                     <div className="scanLayout">
@@ -856,7 +887,7 @@ function App() {
                             <textarea
                                 id="scanPaths"
                                 onChange={(event) => setScanPathsText(event.target.value)}
-                                placeholder="/Users/you/Downloads"
+                                placeholder="每行一個完整路徑，例如 /Users/you/Downloads（不支援 ~ 家目錄縮寫）"
                                 value={scanPathsText}
                             />
                         </div>
@@ -893,12 +924,18 @@ function App() {
                                     <strong>{result.signature || result.error || result.status}</strong>
                                     <code>{result.path}</code>
                                     <div className="resultActions">
-                                        <button className="secondaryButton" onClick={() => openScanResult(result)} type="button">前往位置</button>
+                                        <div className="btnGroup">
+                                            <button className="secondaryButton" onClick={() => openScanResult(result)} type="button">前往位置</button>
+                                        </div>
                                         {result.status === "infected" && (
                                             <>
-                                                <button className="secondaryButton" onClick={() => quarantineResult(result)} type="button">隔離</button>
-                                                <button className="secondaryButton" onClick={() => moveResultToTrash(result)} type="button">移到垃圾桶</button>
-                                                <button className="secondaryButton" onClick={() => permanentlyDeleteResult(result)} type="button">永久刪除</button>
+                                                <div className="btnGroup btnGroup--divided">
+                                                    <button className="actionButton" onClick={() => quarantineResult(result)} type="button">隔離</button>
+                                                </div>
+                                                <div className="btnGroup btnGroup--divided">
+                                                    <button className="dangerSoftButton" onClick={() => moveResultToTrash(result)} type="button">移到垃圾桶</button>
+                                                    <button className="dangerButton" onClick={() => permanentlyDeleteResult(result)} type="button">永久刪除</button>
+                                                </div>
                                             </>
                                         )}
                                     </div>
@@ -928,13 +965,7 @@ function App() {
                             <p className="eyebrow">背景工作</p>
                             <div className="sectionTitleRow">
                                 <h2>排程</h2>
-                                <span className="settingsMessage">{settingsMessage}</span>
                             </div>
-                        </div>
-                        <div className="headerActions">
-                            <button className="secondaryButton" onClick={selectScheduleFiles} type="button">選擇檔案</button>
-                            <button className="secondaryButton" onClick={selectScheduleFolder} type="button">選擇資料夾</button>
-                            <button className="primaryButton" onClick={() => saveSchedulePaths(schedulePathsText)} type="button">儲存路徑</button>
                         </div>
                     </div>
                     <div className="settingsSections">
@@ -976,12 +1007,19 @@ function App() {
                                 )}
                             </div>
                             <div className="scanInputGroup">
-                                <label htmlFor="scheduledScanPaths">掃描路徑</label>
+                                <div className="scanInputGroupHeader">
+                                    <label htmlFor="scheduledScanPaths">掃描路徑</label>
+                                    <div className="btnGroup">
+                                        <button className="secondaryButton" onClick={selectScheduleFiles} type="button">選擇檔案</button>
+                                        <button className="secondaryButton" onClick={selectScheduleFolder} type="button">選擇資料夾</button>
+                                        <button className="primaryButton" onClick={() => saveSchedulePaths(schedulePathsText)} type="button">儲存路徑</button>
+                                    </div>
+                                </div>
                                 <textarea
                                     id="scheduledScanPaths"
                                     onBlur={(event) => saveSchedulePaths(event.target.value)}
                                     onChange={(event) => setSchedulePathsText(event.target.value)}
-                                    placeholder="/Users/you/Downloads"
+                                    placeholder="每行一個完整路徑，例如 /Users/you/Downloads（不支援 ~ 家目錄縮寫）"
                                     value={schedulePathsText}
                                 />
                             </div>
@@ -1073,24 +1111,26 @@ function App() {
                             <p className="eyebrow">掃描結果</p>
                             <div className="sectionTitleRow">
                                 <h2>結果</h2>
-                                <span className="settingsMessage">{resultsMessage}</span>
                             </div>
                         </div>
                         <div className="headerActions">
-                            <button className="secondaryButton" onClick={loadResultsJobs} type="button">重新整理</button>
-                            <button
-                                className="dangerButton"
-                                onClick={() => removeUserDataCategory(
-                                    "removeScanResults",
-                                    "清除所有掃描結果",
-                                    ["即將刪除所有已儲存的掃描結果紀錄，此操作無法復原。", "（不會影響你磁碟上的實際檔案。）"],
-                                    () => { loadResultsJobs(); },
-                                    setResultsMessage
-                                )}
-                                type="button"
-                            >
-                                清除所有結果
-                            </button>
+                            <div className="btnGroup">
+                                <button className="secondaryButton" onClick={loadResultsJobs} type="button">重新整理</button>
+                            </div>
+                            <div className="btnGroup btnGroup--divided">
+                                <button
+                                    className="dangerButton"
+                                    onClick={() => removeUserDataCategory(
+                                        "removeScanResults",
+                                        "清除所有掃描結果",
+                                        ["即將刪除所有已儲存的掃描結果紀錄，此操作無法復原。", "（不會影響你磁碟上的實際檔案。）"],
+                                        () => { loadResultsJobs(); }
+                                    )}
+                                    type="button"
+                                >
+                                    清除所有結果
+                                </button>
+                            </div>
                         </div>
                     </div>
                     {resultsJobs.length === 0 ? (
@@ -1149,12 +1189,18 @@ function App() {
                                                     <code>{result.path}</code>
                                                     <p>引擎：{result.engine || "—"}{result.error ? `　錯誤：${result.error}` : ""}</p>
                                                     <div className="resultActions">
-                                                        <button className="secondaryButton" onClick={() => openResultsItem(result)} type="button">前往位置</button>
+                                                        <div className="btnGroup">
+                                                            <button className="secondaryButton" onClick={() => openResultsItem(result)} type="button">前往位置</button>
+                                                        </div>
                                                         {result.status === "infected" && (
                                                             <>
-                                                                <button className="secondaryButton" onClick={() => quarantineResultsItem(result)} type="button">隔離</button>
-                                                                <button className="secondaryButton" onClick={() => moveResultsItemToTrash(result)} type="button">移到垃圾桶</button>
-                                                                <button className="secondaryButton" onClick={() => permanentlyDeleteResultsItem(result)} type="button">永久刪除</button>
+                                                                <div className="btnGroup btnGroup--divided">
+                                                                    <button className="actionButton" onClick={() => quarantineResultsItem(result)} type="button">隔離</button>
+                                                                </div>
+                                                                <div className="btnGroup btnGroup--divided">
+                                                                    <button className="dangerSoftButton" onClick={() => moveResultsItemToTrash(result)} type="button">移到垃圾桶</button>
+                                                                    <button className="dangerButton" onClick={() => permanentlyDeleteResultsItem(result)} type="button">永久刪除</button>
+                                                                </div>
                                                             </>
                                                         )}
                                                     </div>
@@ -1208,7 +1254,6 @@ function App() {
                             <p className="eyebrow">控制項</p>
                             <div className="sectionTitleRow">
                                 <h2>設定</h2>
-                                <span className="settingsMessage">{settingsMessage}</span>
                             </div>
                         </div>
                     </div>
@@ -1251,14 +1296,15 @@ function App() {
                             <h3>macOS 權限</h3>
                             <div className="settingsStatus">
                                 <span>Full Disk Access</span>
-                                <strong>手動授權</strong>
+                                <strong title={systemPermissions?.fullDiskAccess.message}>{formatPermissionStatus(systemPermissions?.fullDiskAccess.status)}</strong>
                                 <button className="secondaryButton" onClick={openFullDiskAccessSettings} type="button">開啟設定</button>
                             </div>
                             <div className="settingsStatus">
                                 <span>Notifications</span>
-                                <strong>手動授權</strong>
+                                <strong title={notificationPermission.message}>{formatPermissionStatus(notificationPermission.status)}</strong>
                                 <button className="secondaryButton" onClick={openNotificationSettings} type="button">開啟設定</button>
                             </div>
+                            <button className="secondaryButton" onClick={loadSystemPermissionStatus} type="button">重新檢測</button>
                         </section>
                         <section>
                             <h3>ClamAV runtime</h3>
@@ -1275,15 +1321,14 @@ function App() {
                         </section>
                         <section>
                             <h3>重置設定</h3>
-                            <p className="settingHint">將 ClamAV Desktop 的設定檔還原為預設值。掃描結果、掃描工作、App log 與隔離區的清除已分別移到對應頁面操作。</p>
+                            <p className="settingHint">將 ClamAV Desktop 的設定檔還原為預設值。</p>
                             <button
                                 className="dangerButton"
                                 onClick={() => removeUserDataCategory(
                                     "removeSettings",
                                     "重置設定檔",
                                     ["即將把設定檔還原為預設值，此操作無法復原。"],
-                                    () => { GetSettings().then(setSettings); },
-                                    setSettingsMessage
+                                    () => { GetSettings().then(setSettings); }
                                 )}
                                 type="button"
                             >
@@ -1303,39 +1348,40 @@ function App() {
                             <p className="eyebrow">紀錄</p>
                             <div className="sectionTitleRow">
                                 <h2>紀錄</h2>
-                                <span className="settingsMessage">{logsMessage}</span>
                             </div>
                         </div>
                         <div className="headerActions">
-                            <button className="secondaryButton" onClick={loadLogs} type="button">重新整理</button>
-                            <button className="secondaryButton" onClick={exportDiagnostics} type="button">匯出診斷資訊</button>
-                            <button className="secondaryButton" onClick={runDatabaseUpdate} type="button">更新病毒碼</button>
-                            <button
-                                className="dangerButton"
-                                onClick={() => removeUserDataCategory(
-                                    "removeScanJobs",
-                                    "清除掃描工作紀錄",
-                                    ["即將刪除所有掃描工作紀錄，此操作無法復原。", "（不會影響你磁碟上的實際檔案。）"],
-                                    () => { loadLogs(); },
-                                    setLogsMessage
-                                )}
-                                type="button"
-                            >
-                                清除掃描工作
-                            </button>
-                            <button
-                                className="dangerButton"
-                                onClick={() => removeUserDataCategory(
-                                    "removeLogs",
-                                    "清除 App log",
-                                    ["即將刪除 App log，此操作無法復原。"],
-                                    () => { loadLogs(); },
-                                    setLogsMessage
-                                )}
-                                type="button"
-                            >
-                                清除 App log
-                            </button>
+                            <div className="btnGroup">
+                                <button className="secondaryButton" onClick={loadLogs} type="button">重新整理</button>
+                                <button className="secondaryButton" onClick={exportDiagnostics} type="button">匯出診斷資訊</button>
+                                <button className="secondaryButton" onClick={runDatabaseUpdate} type="button">更新病毒碼</button>
+                            </div>
+                            <div className="btnGroup btnGroup--divided">
+                                <button
+                                    className="dangerButton"
+                                    onClick={() => removeUserDataCategory(
+                                        "removeScanJobs",
+                                        "清除掃描工作紀錄",
+                                        ["即將刪除所有掃描工作紀錄，此操作無法復原。", "（不會影響你磁碟上的實際檔案。）"],
+                                        () => { loadLogs(); }
+                                    )}
+                                    type="button"
+                                >
+                                    清除掃描工作
+                                </button>
+                                <button
+                                    className="dangerButton"
+                                    onClick={() => removeUserDataCategory(
+                                        "removeLogs",
+                                        "清除 App log",
+                                        ["即將刪除 App log，此操作無法復原。"],
+                                        () => { loadLogs(); }
+                                    )}
+                                    type="button"
+                                >
+                                    清除 App log
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div className="runtimeBox">
@@ -1372,7 +1418,10 @@ function App() {
                                         <span className={`checkBadge ${entry.level === "error" ? "unhealthy" : "ok"}`}>
                                             {entry.level}
                                         </span>
-                                        <code>{new Date(entry.at).toLocaleString("zh-TW")}　{entry.message}</code>
+                                        <code>
+                                            {new Date(entry.at).toLocaleString("zh-TW")}　{entry.message}
+                                            {entry.source ? `　@ ${entry.source}` : ""}
+                                        </code>
                                     </div>
                                 ))}
                             </div>
@@ -1441,24 +1490,26 @@ function App() {
                             <p className="eyebrow">隔離區</p>
                             <div className="sectionTitleRow">
                                 <h2>隔離區</h2>
-                                <span className="settingsMessage">{quarantineMessage}</span>
                             </div>
                         </div>
                         <div className="headerActions">
-                            <button className="secondaryButton" onClick={loadQuarantineRecords} type="button">重新整理</button>
-                            <button
-                                className="dangerButton"
-                                onClick={() => removeUserDataCategory(
-                                    "removeQuarantine",
-                                    "清空隔離區",
-                                    ["即將永久移除隔離區內的所有已隔離檔案與紀錄，此操作無法復原。"],
-                                    () => { loadQuarantineRecords(); },
-                                    setQuarantineMessage
-                                )}
-                                type="button"
-                            >
-                                清空隔離區
-                            </button>
+                            <div className="btnGroup">
+                                <button className="secondaryButton" onClick={loadQuarantineRecords} type="button">重新整理</button>
+                            </div>
+                            <div className="btnGroup btnGroup--divided">
+                                <button
+                                    className="dangerButton"
+                                    onClick={() => removeUserDataCategory(
+                                        "removeQuarantine",
+                                        "清空隔離區",
+                                        ["即將永久移除隔離區內的所有已隔離檔案與紀錄，此操作無法復原。"],
+                                        () => { loadQuarantineRecords(); }
+                                    )}
+                                    type="button"
+                                >
+                                    清空隔離區
+                                </button>
+                            </div>
                         </div>
                     </div>
                     {quarantineRecords.length === 0 ? (
@@ -1476,13 +1527,19 @@ function App() {
                                         <p>偵測時間：{new Date(record.detectedAt).toLocaleString("zh-TW")}</p>
                                         <div className="resultActions">
                                             {(record.status === "quarantined" || record.status === "restored") && (
-                                                <button className="secondaryButton" onClick={() => openQuarantineRecord(record)} type="button">前往位置</button>
+                                                <div className="btnGroup">
+                                                    <button className="secondaryButton" onClick={() => openQuarantineRecord(record)} type="button">前往位置</button>
+                                                </div>
                                             )}
                                             {record.status === "quarantined" && (
                                                 <>
-                                                    <button className="secondaryButton" onClick={() => restoreQuarantineRecordAction(record)} type="button">還原</button>
-                                                    <button className="secondaryButton" onClick={() => moveQuarantineRecordToTrashAction(record)} type="button">移到垃圾桶</button>
-                                                    <button className="secondaryButton" onClick={() => permanentlyDeleteQuarantineRecordAction(record)} type="button">永久刪除</button>
+                                                    <div className="btnGroup btnGroup--divided">
+                                                        <button className="actionButton" onClick={() => restoreQuarantineRecordAction(record)} type="button">還原</button>
+                                                    </div>
+                                                    <div className="btnGroup btnGroup--divided">
+                                                        <button className="dangerSoftButton" onClick={() => moveQuarantineRecordToTrashAction(record)} type="button">移到垃圾桶</button>
+                                                        <button className="dangerButton" onClick={() => permanentlyDeleteQuarantineRecordAction(record)} type="button">永久刪除</button>
+                                                    </div>
                                                 </>
                                             )}
                                         </div>
@@ -1525,7 +1582,13 @@ function App() {
                             <p className="eyebrow">應用程式資訊</p>
                             <h2>關於</h2>
                         </div>
-                        <button className="secondaryButton" onClick={() => { loadAboutInfo(); loadLoginItemStatus(); loadRuntimeSetup(); }} type="button">重新整理</button>
+                        <div className="headerActions">
+                            <div className="btnGroup">
+                                <button className="secondaryButton" onClick={() => { loadAboutInfo(); loadLoginItemStatus(); loadRuntimeSetup(); }} type="button">重新整理</button>
+                                <button className="secondaryButton" onClick={() => openExternalURL(aboutInfo.officialUrl)} type="button">ClamAV 官網</button>
+                                <button className="secondaryButton" onClick={() => openExternalURL(aboutInfo.githubUrl)} type="button">GitHub Repo</button>
+                            </div>
+                        </div>
                     </div>
                     <div className="aboutGrid">
                         <article className="statusCard">
@@ -1583,6 +1646,9 @@ function App() {
                                 <strong>{runtimeSetup ? (runtimeSetup.ready ? "可使用" : "需處理") : "檢查中"}</strong>
                             </div>
                         </div>
+                        <p className="settingHint">
+                            避免排程不執行：保持背景排程、登入時啟動、保留狀態列圖示開啟，並確認排程掃描已啟用且有掃描路徑。只關閉視窗時排程仍會執行；從狀態列結束 app 或電腦關機時，排程不會執行。
+                        </p>
                     </div>
                     <div className="aboutSection">
                         <h3>ClamAV 路徑</h3>
@@ -1597,6 +1663,7 @@ function App() {
                     </div>
                     <div className="aboutSection">
                         <h3>CLI 常用指令</h3>
+                        <p className="settingHint">有需要時，可複製底下指令到 Terminal 手動檢查版本、更新病毒碼、掃描資料夾或建立 macOS 排程。</p>
                         <div className="pathTable">
                             {aboutInfo.commands.map((command) => (
                                 <div className="pathRow" key={command.label}>
@@ -1619,10 +1686,6 @@ function App() {
                                 </div>
                             ))}
                         </div>
-                    </div>
-                    <div className="aboutLinks">
-                        <button className="secondaryButton" onClick={() => openExternalURL(aboutInfo.officialUrl)} type="button">ClamAV 官網</button>
-                        <button className="secondaryButton" onClick={() => openExternalURL(aboutInfo.githubUrl)} type="button">GitHub Repo</button>
                     </div>
                 </section>
             );
@@ -1908,6 +1971,19 @@ function formatLoginItemStatus(status?: main.LoginItemStatus | null) {
 		return "讀取失敗";
 	}
 	return status.enabled ? "已註冊" : "未註冊";
+}
+
+function formatPermissionStatus(status?: string) {
+	if (status === "authorized") {
+		return "已授權";
+	}
+	if (status === "denied") {
+		return "未授權";
+	}
+	if (status === "unknown") {
+		return "無法判定";
+	}
+	return "檢查中";
 }
 
 function formatScanStatus(status: string) {

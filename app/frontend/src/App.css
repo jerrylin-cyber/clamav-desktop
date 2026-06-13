@@ -116,6 +116,7 @@ h3 {
 }
 
 .headerActions {
+    align-items: center;
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
@@ -131,17 +132,25 @@ h3 {
 }
 
 .primaryButton,
-.secondaryButton {
+.secondaryButton,
+.actionButton,
+.dangerButton,
+.dangerSoftButton {
     -webkit-tap-highlight-color: transparent;
+    border-radius: 7px;
     cursor: pointer;
     font: inherit;
     font-weight: 700;
+    padding: 9px 13px;
     transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.08s ease;
     user-select: none;
 }
 
 .primaryButton:focus-visible,
 .secondaryButton:focus-visible,
+.actionButton:focus-visible,
+.dangerButton:focus-visible,
+.dangerSoftButton:focus-visible,
 .filterButton:focus-visible,
 nav button:focus-visible {
     outline: none;
@@ -170,6 +179,11 @@ nav button:focus-visible {
     box-shadow: 0 0 0 3px rgba(18, 108, 85, 0.35);
 }
 
+.ctaButton {
+    font-size: 15px;
+    padding: 11px 22px;
+}
+
 .secondaryButton {
     background: #ffffff;
     border: 1px solid #cfd8e6;
@@ -194,31 +208,118 @@ nav button:focus-visible {
 }
 
 .primaryButton:disabled,
-.secondaryButton:disabled {
+.secondaryButton:disabled,
+.actionButton:disabled,
+.dangerButton:disabled,
+.dangerSoftButton:disabled {
     box-shadow: none;
     cursor: not-allowed;
     opacity: 0.5;
     transform: none;
 }
 
+/* 建議處置動作（隔離、還原）：藍色 accent */
+.actionButton {
+    background: #eef4fb;
+    border: 1px solid #bcd4ee;
+    color: #1d4e7a;
+}
+
+.actionButton:hover {
+    background: #e3eef9;
+    border-color: #9cc0e6;
+}
+
+.actionButton:active {
+    background: #d6e6f6;
+    transform: scale(0.97);
+}
+
+.actionButton:focus-visible {
+    border-color: #3b82c4;
+    box-shadow: 0 0 0 3px rgba(59, 130, 196, 0.2);
+}
+
+/* 可復原的破壞性動作（移到垃圾桶）：紅色外框 */
+.dangerSoftButton {
+    background: #ffffff;
+    border: 1px solid #e3b4ad;
+    color: #b23a2c;
+}
+
+.dangerSoftButton:hover {
+    background: #fdf2f0;
+    border-color: #d98b7e;
+}
+
+.dangerSoftButton:active {
+    background: #f7e3df;
+    transform: scale(0.97);
+}
+
+.dangerSoftButton:focus-visible {
+    border-color: #c23b3b;
+    box-shadow: 0 0 0 3px rgba(194, 59, 59, 0.18);
+}
+
+/* 不可復原的破壞性動作（永久刪除、頁面層級清除）：紅色實心 */
 .dangerButton {
     background: #c23b3b;
-    border: 0;
+    border: 1px solid #c23b3b;
+    box-shadow: 0 1px 2px rgba(194, 59, 59, 0.25);
     color: #ffffff;
 }
 
 .dangerButton:hover {
     background: #a83333;
-    border-color: transparent;
+    border-color: #a83333;
 }
 
 .dangerButton:active {
     background: #922c2c;
+    box-shadow: none;
     transform: scale(0.97);
 }
 
 .dangerButton:focus-visible {
     box-shadow: 0 0 0 3px rgba(194, 59, 59, 0.3);
+}
+
+.presetSelect {
+    background: #ffffff;
+    border: 1px solid #cfd8e6;
+    border-radius: 7px;
+    color: #344156;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 700;
+    padding: 9px 13px;
+    transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.presetSelect:hover {
+    background: #f1f5fa;
+    border-color: #b8c4d6;
+}
+
+.presetSelect:focus-visible {
+    border-color: #126c55;
+    box-shadow: 0 0 0 3px rgba(18, 108, 85, 0.2);
+    outline: none;
+}
+
+/* 按鈕分組與分隔線 */
+.btnGroup {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.btnGroup--divided {
+    border-left: 1px solid #dde4ee;
+    margin-left: 2px;
+    padding-left: 12px;
 }
 
 .statusGrid,
@@ -296,13 +397,6 @@ nav button:focus-visible {
     color: #69778c;
     font-size: 13px;
     font-weight: 700;
-}
-
-.aboutLinks {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 18px;
 }
 
 .setupOverlay {
@@ -601,12 +695,6 @@ code {
     cursor: not-allowed;
 }
 
-.settingsMessage {
-    color: #657184;
-    font-size: 13px;
-    max-width: 420px;
-}
-
 .scanLayout {
     display: grid;
     gap: 16px;
@@ -621,6 +709,13 @@ code {
     color: #69778c;
     font-size: 13px;
     font-weight: 700;
+}
+
+.scanInputGroupHeader {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
 }
 
 .scanInputGroup textarea {
@@ -719,12 +814,27 @@ code {
 }
 
 .resultActions {
+    align-items: center;
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
-    margin-top: 10px;
+    margin-top: 12px;
 }
 
-.resultActions .secondaryButton {
+.resultActions .btnGroup {
+    gap: 8px;
+}
+
+.resultActions .btnGroup--divided {
+    border-left: 1px solid #e1e6ef;
+    margin-left: 2px;
+    padding-left: 10px;
+}
+
+.resultActions .secondaryButton,
+.resultActions .actionButton,
+.resultActions .dangerButton,
+.resultActions .dangerSoftButton {
     font-size: 13px;
     padding: 6px 10px;
 }

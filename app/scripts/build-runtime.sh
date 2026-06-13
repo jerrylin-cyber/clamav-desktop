@@ -1,6 +1,8 @@
 #!/bin/sh
 # build-runtime.sh — 從原始碼編譯 ClamAV runtime，並封裝成可供 app 使用的 .tar.zst 壓縮包。
 # 用途：產生 clamav-runtime-darwin-*.tar.zst 與 runtime-metadata.json，供 app 在首次啟動時解壓安裝。
+# 注意：若本機已透過 Homebrew 安裝可用的 ClamAV（一般執行模式），通常不需要執行此腳本。
+#       此腳本主要用於產生 runtime artifact（例如 CI/發佈流程）。
 # 使用方式：./scripts/build-runtime.sh
 # 環境變數（均可選）：
 #   CLAMAV_VERSION      — ClamAV 版本（預設：1.5.2）

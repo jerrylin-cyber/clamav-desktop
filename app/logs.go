@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -13,11 +14,13 @@ import (
 
 const sharedLogPath = "/Library/Logs/ClamAVDesktop"
 
-// LogEntry is one line of the per-user app log.
+// LogEntry is one line of the per-user app log. Source records the caller
+// location (file:line function) for error entries to ease debugging.
 type LogEntry struct {
 	At      time.Time `json:"at"`
 	Level   string    `json:"level"`
 	Message string    `json:"message"`
+	Source  string    `json:"source,omitempty"`
 }
 
 // LogService reads and writes the per-user app log and exposes the shared
@@ -43,6 +46,9 @@ func (s *LogService) appLogPath() string {
 // WriteAppLog appends one entry to the per-user app log.
 func (s *LogService) WriteAppLog(level, message string) error {
 	entry := LogEntry{At: s.timeNow(), Level: level, Message: message}
+	if level == "error" {
+		entry.Source = callerLocation(2)
+	}
 	line, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("序列化 app log 失敗: %w", err)
@@ -61,6 +67,27 @@ func (s *LogService) WriteAppLog(level, message string) error {
 		return fmt.Errorf("寫入 app log 失敗: %w", err)
 	}
 	return nil
+}
+
+// callerLocation returns "file.go:line function" for the frame skip levels up
+// the stack, so error log entries point at where the failure was recorded.
+func callerLocation(skip int) string {
+	pc, file, line, ok := runtime.Caller(skip)
+	if !ok {
+		return ""
+	}
+	fn := ""
+	if f := runtime.FuncForPC(pc); f != nil {
+		fn = f.Name()
+		if idx := strings.LastIndex(fn, "."); idx >= 0 {
+			fn = fn[idx+1:]
+		}
+	}
+	location := fmt.Sprintf("%s:%d", filepath.Base(file), line)
+	if fn != "" {
+		location += " " + fn
+	}
+	return location
 }
 
 // ListAppLogEntries returns the most recent app log entries, newest first.
@@ -96,18 +123,31 @@ func (s *LogService) ListAppLogEntries(limit int) ([]LogEntry, error) {
 	return entries, nil
 }
 
-// ReadSharedLog returns the most recent lines of a shared system log written
-// by the LaunchDaemon-managed freshclam/clamd services. Returns an empty
-// slice if the shared runtime is not installed or the log is unreadable.
+// ReadSharedLog returns the most recent lines of a freshclam/clamd log.
+// freshclam/clamd may write to either the system LaunchDaemon location
+// (/Library/Logs/ClamAVDesktop) or the per-user generated-config location
+// (~/Library/Logs/ClamAVDesktop), so both candidates are checked and the
+// first one with content wins. Returns an empty slice if neither is readable.
 // limit <= 0 returns all lines.
 func (s *LogService) ReadSharedLog(name string, limit int) []string {
-	base := s.SharedLogPath
-	if base == "" {
-		base = sharedLogPath
+	systemBase := s.SharedLogPath
+	if systemBase == "" {
+		systemBase = sharedLogPath
 	}
-	content, err := os.ReadFile(filepath.Join(base, name))
-	if err != nil {
-		return []string{}
+
+	var content []byte
+	for _, base := range []string{systemBase, s.LogPath} {
+		if base == "" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(base, name))
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(string(data)) != "" {
+			content = data
+			break
+		}
 	}
 
 	trimmed := strings.TrimRight(string(content), "\n")

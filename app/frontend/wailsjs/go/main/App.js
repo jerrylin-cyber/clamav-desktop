@@ -46,6 +46,10 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function GetSystemPermissionStatus() {
+  return window['go']['main']['App']['GetSystemPermissionStatus']();
+}
+
 export function ListAppLogEntries(arg1) {
   return window['go']['main']['App']['ListAppLogEntries'](arg1);
 }

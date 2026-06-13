@@ -2,8 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 )
 
 const (
@@ -12,9 +17,22 @@ const (
 )
 
 type systemSettingsRunner func(context.Context, string) error
+type systemPermissionChecker func(string, bool) error
+
+type SystemPermissionCheck struct {
+	Authorized bool   `json:"authorized"`
+	Status     string `json:"status"`
+	Message    string `json:"message"`
+}
+
+type SystemPermissionStatus struct {
+	FullDiskAccess SystemPermissionCheck `json:"fullDiskAccess"`
+}
 
 type SystemSettingsService struct {
-	OpenURL systemSettingsRunner
+	OpenURL   systemSettingsRunner
+	HomeDir   string
+	CheckPath systemPermissionChecker
 }
 
 func newSystemSettingsService() *SystemSettingsService {
@@ -27,6 +45,12 @@ func (s *SystemSettingsService) OpenFullDiskAccess(ctx context.Context) error {
 
 func (s *SystemSettingsService) OpenNotifications(ctx context.Context) error {
 	return s.open(ctx, notificationSettingsURL)
+}
+
+func (s *SystemSettingsService) PermissionStatus() SystemPermissionStatus {
+	return SystemPermissionStatus{
+		FullDiskAccess: s.fullDiskAccessStatus(),
+	}
 }
 
 func (s *SystemSettingsService) open(ctx context.Context, url string) error {
@@ -42,4 +66,79 @@ func (s *SystemSettingsService) open(ctx context.Context, url string) error {
 
 func openSystemSettingsURL(ctx context.Context, url string) error {
 	return exec.CommandContext(ctx, "/usr/bin/open", url).Run()
+}
+
+func (s *SystemSettingsService) fullDiskAccessStatus() SystemPermissionCheck {
+	homeDir := s.HomeDir
+	if strings.TrimSpace(homeDir) == "" {
+		var err error
+		homeDir, err = os.UserHomeDir()
+		if err != nil || strings.TrimSpace(homeDir) == "" {
+			return SystemPermissionCheck{Status: "unknown", Message: "無法取得使用者 home 目錄"}
+		}
+	}
+
+	checkPath := s.CheckPath
+	if checkPath == nil {
+		checkPath = checkSystemPermissionPath
+	}
+
+	checkedExistingPath := false
+	for _, probe := range fullDiskAccessProbes(homeDir) {
+		if err := checkPath(probe.path, probe.directory); err == nil {
+			return SystemPermissionCheck{Authorized: true, Status: "authorized", Message: "可讀取 macOS 受保護資料"}
+		} else if errors.Is(err, os.ErrNotExist) {
+			continue
+		} else if isPermissionDenied(err) {
+			return SystemPermissionCheck{Status: "denied", Message: "macOS 拒絕讀取受保護資料"}
+		} else {
+			checkedExistingPath = true
+		}
+	}
+
+	if checkedExistingPath {
+		return SystemPermissionCheck{Status: "unknown", Message: "受保護資料存在，但目前無法判定權限狀態"}
+	}
+	return SystemPermissionCheck{Status: "unknown", Message: "找不到可用來檢查的受保護資料"}
+}
+
+type fullDiskAccessProbe struct {
+	path      string
+	directory bool
+}
+
+func fullDiskAccessProbes(homeDir string) []fullDiskAccessProbe {
+	return []fullDiskAccessProbe{
+		{path: filepath.Join(homeDir, "Library", "Safari", "History.db")},
+		{path: filepath.Join(homeDir, "Library", "Safari", "CloudTabs.db")},
+		{path: filepath.Join(homeDir, "Library", "Messages", "chat.db")},
+		{path: filepath.Join(homeDir, "Library", "Mail"), directory: true},
+	}
+}
+
+func checkSystemPermissionPath(path string, directory bool) error {
+	if directory {
+		_, err := os.ReadDir(path)
+		return err
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	var oneByte [1]byte
+	if _, err := file.Read(oneByte[:]); err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	return nil
+}
+
+func isPermissionDenied(err error) bool {
+	if os.IsPermission(err) {
+		return true
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "operation not permitted") || strings.Contains(message, "permission denied")
 }

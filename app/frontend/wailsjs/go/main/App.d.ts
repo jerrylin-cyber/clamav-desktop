@@ -24,6 +24,8 @@ export function GetScanJob(arg1:string):Promise<main.ScanJob>;
 
 export function GetSettings():Promise<main.Settings>;
 
+export function GetSystemPermissionStatus():Promise<main.SystemPermissionStatus>;
+
 export function ListAppLogEntries(arg1:number):Promise<Array<main.LogEntry>>;
 
 export function ListQuarantineRecords():Promise<Array<main.QuarantineRecord>>;
