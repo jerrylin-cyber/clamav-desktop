@@ -1,4 +1,5 @@
 build/bin
+build/go-cache
 build/runtime-work
 build/runtime-artifacts
 node_modules
