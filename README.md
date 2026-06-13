@@ -58,8 +58,14 @@ clamav-desktop/
 - macOS（Apple Silicon 或 Intel）
 - [ClamAV](https://www.clamav.net/downloads)（可透過 Homebrew：`brew install clamav`）
 - [Go 1.23+](https://go.dev/dl/)
-- [Node.js 20+](https://nodejs.org/)
+- [Node.js 22+](https://nodejs.org/)
 - [Wails CLI](https://wails.io/docs/gettingstarted/installation)
+
+## 安裝相依
+
+```bash
+cd app/frontend && npm ci
+```
 
 ## 開發
 
@@ -76,6 +82,14 @@ cd frontend && npm run dev
 cd frontend && npm run typecheck
 ```
 
+## 驗證
+
+```bash
+cd app && ./scripts/check.sh
+```
+
+這會依序執行 Go 單元測試、`go vet`、前端型別檢查與 Vite build。
+
 ## 建置
 
 ```bash
@@ -84,11 +98,31 @@ cd app && wails build
 
 產出 `.app` 位於 `app/build/bin/ClamAV Desktop.app`。
 
+如果已經有既有 app bundle，只想快速覆蓋最新 binary：
+
+```bash
+cd app && ./scripts/build-app.sh
+```
+
+這個腳本會重建前端、重新編譯 production binary、覆蓋現有 app bundle 內的執行檔，並在可用時做 ad-hoc codesign。
+
 ## 測試
 
 ```bash
 cd app && go test ./...
 ```
+
+若在全新環境先跑 Go 測試，請先執行一次前端 build：
+
+```bash
+cd app/frontend && npm run build
+```
+
+原因是 Wails 會在編譯時 embed `frontend/dist`。
+
+## CI
+
+GitHub Actions 目前在發佈 GitHub Release 時執行：前端安裝、typecheck、build、`go test`、`go vet`、`wails build -skipbindings`。
 
 ## 授權
 
