@@ -58,17 +58,31 @@ jobs:
       - name: Wails build
         run: "$(go env GOPATH)/bin/wails build -skipbindings"
 
+      - name: Detect signing secrets
+        id: signing
+        env:
+          APPLE_DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
+          APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
+          APPLE_NOTARY_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_NOTARY_KEYCHAIN_PASSWORD }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+        run: |
+          if [ -n "${APPLE_DEVELOPER_ID_CERT_P12_BASE64}" ] && [ -n "${APPLE_DEVELOPER_ID_CERT_PASSWORD}" ] && [ -n "${APPLE_NOTARY_KEYCHAIN_PASSWORD}" ] && [ -n "${APPLE_API_KEY_ID}" ] && [ -n "${APPLE_API_ISSUER_ID}" ] && [ -n "${APPLE_API_PRIVATE_KEY}" ]; then
+            echo "enabled=true" >> "${GITHUB_OUTPUT}"
+            echo "偵測到完整 Apple 簽署/公證 secrets：將進行簽章與公證。"
+          else
+            echo "enabled=false" >> "${GITHUB_OUTPUT}"
+            echo "::warning::未設定完整 Apple 簽署/公證 secrets，將發佈未簽署的 build。"
+          fi
+
       - name: Import Developer ID certificate
+        if: steps.signing.outputs.enabled == 'true'
         env:
           APPLE_DEVELOPER_ID_CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERT_P12_BASE64 }}
           APPLE_DEVELOPER_ID_CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERT_PASSWORD }}
           APPLE_NOTARY_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_NOTARY_KEYCHAIN_PASSWORD }}
         run: |
-          if [ -z "${APPLE_DEVELOPER_ID_CERT_P12_BASE64}" ] || [ -z "${APPLE_DEVELOPER_ID_CERT_PASSWORD}" ] || [ -z "${APPLE_NOTARY_KEYCHAIN_PASSWORD}" ]; then
-            echo "缺少簽署必填 secrets：APPLE_DEVELOPER_ID_CERT_P12_BASE64 / APPLE_DEVELOPER_ID_CERT_PASSWORD / APPLE_NOTARY_KEYCHAIN_PASSWORD" >&2
-            exit 1
-          fi
-
           security create-keychain -p "${APPLE_NOTARY_KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
           security default-keychain -s "${KEYCHAIN_NAME}"
           security unlock-keychain -p "${APPLE_NOTARY_KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
@@ -86,6 +100,7 @@ jobs:
             -s -k "${APPLE_NOTARY_KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
 
       - name: Codesign app bundle
+        if: steps.signing.outputs.enabled == 'true'
         env:
           APPLE_NOTARY_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_NOTARY_KEYCHAIN_PASSWORD }}
         run: |
@@ -102,24 +117,21 @@ jobs:
             "build/bin/${APP_NAME}.app"
 
       - name: Verify code signature
+        if: steps.signing.outputs.enabled == 'true'
         run: |
           codesign --verify --deep --strict --verbose=2 "build/bin/${APP_NAME}.app"
           codesign -dv --verbose=4 "build/bin/${APP_NAME}.app"
 
-      - name: Package app bundle for notarization
+      - name: Package app bundle
         run: ditto -c -k --sequesterRsrc --keepParent "build/bin/${APP_NAME}.app" "build/bin/${APP_ZIP}"
 
       - name: Notarize app zip
+        if: steps.signing.outputs.enabled == 'true'
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
           APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
         run: |
-          if [ -z "${APPLE_API_KEY_ID}" ] || [ -z "${APPLE_API_ISSUER_ID}" ] || [ -z "${APPLE_API_PRIVATE_KEY}" ]; then
-            echo "缺少 notarization 必填 secrets：APPLE_API_KEY_ID / APPLE_API_ISSUER_ID / APPLE_API_PRIVATE_KEY" >&2
-            exit 1
-          fi
-
           API_KEY_FILE="/tmp/AuthKey_${APPLE_API_KEY_ID}.p8"
           printf '%s' "${APPLE_API_PRIVATE_KEY}" > "${API_KEY_FILE}"
 
@@ -130,11 +142,13 @@ jobs:
             --wait
 
       - name: Staple notarization ticket
+        if: steps.signing.outputs.enabled == 'true'
         run: |
           xcrun stapler staple "build/bin/${APP_NAME}.app"
           spctl -a -vvv --type execute "build/bin/${APP_NAME}.app"
 
       - name: Repackage stapled app bundle
+        if: steps.signing.outputs.enabled == 'true'
         run: ditto -c -k --sequesterRsrc --keepParent "build/bin/${APP_NAME}.app" "build/bin/${APP_ZIP}"
 
       - name: Publish release asset
