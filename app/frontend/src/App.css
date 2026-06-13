@@ -1034,3 +1034,67 @@ code {
     font-size: 13px;
     margin-bottom: 12px;
 }
+
+span.helpTip {
+    align-items: center;
+    background: #d7e0ee;
+    border-radius: 50%;
+    color: #3a5170;
+    cursor: help;
+    display: inline-flex;
+    flex: none;
+    font-size: 11px;
+    font-weight: 700;
+    height: 16px;
+    justify-content: center;
+    margin-left: 6px;
+    position: relative;
+    vertical-align: middle;
+    width: 16px;
+}
+
+span.helpTip:hover,
+span.helpTip:focus-visible {
+    background: #b9c9e0;
+    outline: none;
+}
+
+.helpTip .helpTipBubble {
+    background: #172033;
+    border-radius: 8px;
+    bottom: calc(100% + 9px);
+    color: #f5f8fd;
+    font-size: 12px;
+    font-weight: 400;
+    left: 50%;
+    line-height: 1.5;
+    opacity: 0;
+    padding: 8px 10px;
+    pointer-events: none;
+    position: absolute;
+    text-align: left;
+    transform: translateX(-50%) translateY(4px);
+    transition: opacity 0.12s ease, transform 0.12s ease;
+    visibility: hidden;
+    white-space: normal;
+    width: 240px;
+    z-index: 30;
+}
+
+.helpTip .helpTipBubble::after {
+    border: 6px solid transparent;
+    border-top-color: #172033;
+    content: "";
+    left: 50%;
+    position: absolute;
+    top: 100%;
+    transform: translateX(-50%);
+}
+
+.helpTip:hover .helpTipBubble,
+.helpTip:focus-visible .helpTipBubble,
+.helpTip:focus-within .helpTipBubble {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+    visibility: visible;
+}

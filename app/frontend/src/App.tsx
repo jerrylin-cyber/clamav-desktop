@@ -990,13 +990,13 @@ function App() {
                             <h3>排程掃描</h3>
                             <div className="settingsGrid">
                                 <label>
-                                    <span>啟用</span>
+                                    <span>啟用 <HelpTip text="開啟後，App 會依下方的頻率與時間自動掃描指定路徑。需同時開啟「設定」頁的「背景排程」，才會在背景實際執行。"/></span>
                                     <input checked={settings.scanSchedule.enabled} onChange={(event) => updateSettings((next) => {
                                         next.scanSchedule.enabled = event.target.checked;
                                     })} type="checkbox"/>
                                 </label>
                                 <label>
-                                    <span>頻率</span>
+                                    <span>頻率 <HelpTip text="自動掃描的週期：每日或每週。選「每週」時可再指定星期幾。"/></span>
                                     <select onChange={(event) => updateSettings((next) => {
                                         next.scanSchedule.frequency = event.target.value;
                                     })} value={settings.scanSchedule.frequency}>
@@ -1005,14 +1005,14 @@ function App() {
                                     </select>
                                 </label>
                                 <label>
-                                    <span>時間</span>
+                                    <span>時間 <HelpTip text="每次自動掃描的觸發時間（24 小時制）。"/></span>
                                     <input onChange={(event) => updateSettings((next) => {
                                         next.scanSchedule.timeOfDay = event.target.value;
                                     })} type="time" value={settings.scanSchedule.timeOfDay}/>
                                 </label>
                                 {settings.scanSchedule.frequency === "weekly" && (
                                     <label>
-                                        <span>星期</span>
+                                        <span>星期 <HelpTip text="頻率設為「每週」時，於每週的哪一天執行掃描。"/></span>
                                         <select onChange={(event) => updateSettings((next) => {
                                             next.scanSchedule.weekday = Number(event.target.value);
                                         })} value={settings.scanSchedule.weekday}>
@@ -1025,7 +1025,7 @@ function App() {
                             </div>
                             <div className="scanInputGroup">
                                 <div className="scanInputGroupHeader">
-                                    <label htmlFor="scheduledScanPaths">掃描路徑</label>
+                                    <label htmlFor="scheduledScanPaths">掃描路徑 <HelpTip text="排程掃描的目標清單，每行一個完整路徑（例如 /Users/you/Downloads），不支援 ~ 家目錄縮寫。"/></label>
                                     <div className="btnGroup">
                                         <button className="secondaryButton" onClick={selectScheduleFiles} type="button">選擇檔案</button>
                                         <button className="secondaryButton" onClick={selectScheduleFolder} type="button">選擇資料夾</button>
@@ -1050,13 +1050,13 @@ function App() {
                             </div>
                             <div className="settingsGrid">
                                 <label>
-                                    <span>啟用</span>
+                                    <span>啟用 <HelpTip text="開啟後，App 會依設定時間自動更新病毒碼資料庫。共用執行環境（system-shared）的更新由系統管理，此設定不會生效。"/></span>
                                     <input checked={settings.updateSchedule.enabled} onChange={(event) => updateSettings((next) => {
                                         next.updateSchedule.enabled = event.target.checked;
                                     })} type="checkbox"/>
                                 </label>
                                 <label>
-                                    <span>頻率</span>
+                                    <span>頻率 <HelpTip text="病毒碼自動更新的週期。"/></span>
                                     <select onChange={(event) => updateSettings((next) => {
                                         next.updateSchedule.frequency = event.target.value;
                                     })} value={settings.updateSchedule.frequency}>
@@ -1064,7 +1064,7 @@ function App() {
                                     </select>
                                 </label>
                                 <label>
-                                    <span>時間</span>
+                                    <span>時間 <HelpTip text="每日自動更新病毒碼的觸發時間；實際執行會加入隨機延遲，以分散官方伺服器的負載。"/></span>
                                     <input onChange={(event) => updateSettings((next) => {
                                         next.updateSchedule.timeOfDay = event.target.value;
                                     })} type="time" value={settings.updateSchedule.timeOfDay}/>
@@ -1075,19 +1075,19 @@ function App() {
                             <h3>電源政策</h3>
                             <div className="settingsGrid">
                                 <label>
-                                    <span>電池供電時執行</span>
+                                    <span>電池供電時執行 <HelpTip text="關閉時，未接電源（使用電池）期間會略過排程掃描與病毒碼更新，避免耗電。"/></span>
                                     <input checked={settings.powerPolicy.runOnBattery} onChange={(event) => updateSettings((next) => {
                                         next.powerPolicy.runOnBattery = event.target.checked;
                                     })} type="checkbox"/>
                                 </label>
                                 <label>
-                                    <span>省電模式下執行</span>
+                                    <span>省電模式下執行 <HelpTip text="關閉時，macOS 低耗電模式（Low Power Mode）期間會略過排程工作。"/></span>
                                     <input checked={settings.powerPolicy.runInLowPowerMode} onChange={(event) => updateSettings((next) => {
                                         next.powerPolicy.runInLowPowerMode = event.target.checked;
                                     })} type="checkbox"/>
                                 </label>
                                 <label>
-                                    <span>延後到充電時執行</span>
+                                    <span>延後到充電時執行 <HelpTip text="開啟後，因上述電源限制而被略過的排程工作，會延後到接上電源時再補執行。"/></span>
                                     <input checked={settings.powerPolicy.deferUntilCharging} onChange={(event) => updateSettings((next) => {
                                         next.powerPolicy.deferUntilCharging = event.target.checked;
                                     })} type="checkbox"/>
@@ -1280,25 +1280,25 @@ function App() {
                             <p className="settingHint">「登入時啟動」開啟後，macOS 會在你登入時自動開啟 ClamAV Desktop，讓背景排程持續運作。目前狀態可在「關於」頁查看。</p>
                             <div className="settingsGrid">
                                 <label>
-                                    <span>背景排程</span>
+                                    <span>背景排程 <HelpTip text="排程工作的總開關。開啟後 App 才會在背景執行排程掃描與病毒碼更新；關閉等於暫停所有自動排程。"/></span>
                                     <input checked={settings.background.enabled} onChange={(event) => updateSettings((next) => {
                                         next.background.enabled = event.target.checked;
                                     })} type="checkbox"/>
                                 </label>
                                 <label>
-                                    <span>登入時啟動</span>
+                                    <span>登入時啟動 <HelpTip text="登入 macOS 時自動開啟 App，讓背景排程持續運作；優先使用系統 SMAppService，失敗時改用 per-user LaunchAgent。"/></span>
                                     <input checked={settings.login.launchAtLogin} onChange={(event) => updateSettings((next) => {
                                         next.login.launchAtLogin = event.target.checked;
                                     })} type="checkbox"/>
                                 </label>
                                 <label className={settings.background.keepMenuBarIcon ? "" : "disabledLabel"}>
-                                    <span>啟動時隱藏視窗</span>
+                                    <span>啟動時隱藏視窗 <HelpTip text="啟動時不顯示主視窗，僅常駐於選單列。需先開啟「保留狀態列圖示」，否則啟動後將沒有入口可開啟視窗。"/></span>
                                     <input checked={settings.background.startHidden && settings.background.keepMenuBarIcon} disabled={!settings.background.keepMenuBarIcon} onChange={(event) => updateSettings((next) => {
                                         next.background.startHidden = event.target.checked;
                                     })} type="checkbox"/>
                                 </label>
                                 <label>
-                                    <span>保留狀態列圖示</span>
+                                    <span>保留狀態列圖示 <HelpTip text="關閉視窗時改為隱藏並常駐選單列，讓背景排程繼續運作；只有從狀態列選單「結束」才會真正退出 App。"/></span>
                                     <input checked={settings.background.keepMenuBarIcon} onChange={(event) => updateSettings((next) => {
                                         next.background.keepMenuBarIcon = event.target.checked;
                                         if (!event.target.checked) {
@@ -1312,12 +1312,12 @@ function App() {
                         <section>
                             <h3>macOS 權限</h3>
                             <div className="settingsStatus">
-                                <span>Full Disk Access</span>
+                                <span>Full Disk Access <HelpTip text="授予完整磁碟取用權限後，才能掃描受系統保護的目錄（如其他 App 的資料、郵件、訊息等）。"/></span>
                                 <strong title={systemPermissions?.fullDiskAccess.message}>{formatPermissionStatus(systemPermissions?.fullDiskAccess.status)}</strong>
                                 <button className="secondaryButton" onClick={openFullDiskAccessSettings} type="button">開啟設定</button>
                             </div>
                             <div className="settingsStatus">
-                                <span>Notifications</span>
+                                <span>Notifications <HelpTip text="允許通知後，掃描結果與排程事件才能以 macOS 系統通知提醒你。"/></span>
                                 <strong title={notificationPermission.message}>{formatPermissionStatus(notificationPermission.status)}</strong>
                                 <button className="secondaryButton" onClick={openNotificationSettings} type="button">開啟設定</button>
                             </div>
@@ -1326,12 +1326,12 @@ function App() {
                         <section>
                             <h3>ClamAV runtime</h3>
                             <div className="settingsStatus">
-                                <span>安裝狀態</span>
+                                <span>安裝狀態 <HelpTip text="顯示 ClamAV 執行環境（clamd 服務、病毒碼、設定檔）是否就緒；未就緒時掃描功能無法使用。"/></span>
                                 <strong>{runtimeSetup?.ready ? "可使用" : "需處理"}</strong>
                                 <button className="secondaryButton" onClick={loadRuntimeSetup} type="button">重新檢測</button>
                             </div>
                             <div className="settingsStatus">
-                                <span>移除方式</span>
+                                <span>移除方式 <HelpTip text="顯示如何移除由 App 安裝的 ClamAV 執行環境的操作提示（例如以 Homebrew 解除安裝）。"/></span>
                                 <strong>提示移除</strong>
                                 <button className="secondaryButton" onClick={showRuntimeRemovalPrompt} type="button">顯示提示</button>
                             </div>
@@ -1845,6 +1845,15 @@ function App() {
                 </div>
             )}
         </div>
+    );
+}
+
+function HelpTip({text}: {text: string}) {
+    return (
+        <span className="helpTip" tabIndex={0} role="note" aria-label={text}>
+            ?
+            <span className="helpTipBubble" role="tooltip">{text}</span>
+        </span>
     );
 }
 

@@ -17,6 +17,17 @@ import (
 	"time"
 )
 
+// quarantineXORKey 對隔離檔內容做單一位元組 XOR，使惡意 payload 不以原始形態
+// 留存在磁碟上，降低被其他程式直接讀取或誤觸發的風險。XOR 為對稱運算，
+// 還原時套用同一把 key 即可解碼。
+const quarantineXORKey byte = 0xFF
+
+// 隔離檔的編碼標記。空字串代表舊版未編碼的明文隔離檔，向後相容。
+const (
+	quarantineEncodingNone = ""
+	quarantineEncodingXOR  = "xor"
+)
+
 type QuarantineRecord struct {
 	ID             string     `json:"id"`
 	OriginalPath   string     `json:"originalPath"`
@@ -25,7 +36,22 @@ type QuarantineRecord struct {
 	DetectedAt     time.Time  `json:"detectedAt"`
 	SHA256         string     `json:"sha256"`
 	Status         string     `json:"status"`
+	Encoding       string     `json:"encoding"`
 	RestoredAt     *time.Time `json:"restoredAt"`
+}
+
+// xorWriter 在寫入底層 writer 前對每個位元組套用 XOR key。
+type xorWriter struct {
+	w   io.Writer
+	key byte
+}
+
+func (x *xorWriter) Write(p []byte) (int, error) {
+	buf := make([]byte, len(p))
+	for i := range p {
+		buf[i] = p[i] ^ x.key
+	}
+	return x.w.Write(buf)
 }
 
 type openLocationRunner func(ctx context.Context, path string) error
@@ -89,8 +115,10 @@ func (s *FileActionService) Quarantine(result ScanResult) (QuarantineRecord, err
 		return QuarantineRecord{}, fmt.Errorf("建立 quarantine 檔案失敗: %w", err)
 	}
 
+	// SHA256 取原始內容的雜湊（可比對威脅情報）；磁碟上以 XOR 編碼寫入。
 	hasher := sha256.New()
-	if _, err := io.Copy(io.MultiWriter(target, hasher), source); err != nil {
+	encoded := &xorWriter{w: target, key: quarantineXORKey}
+	if _, err := io.Copy(io.MultiWriter(hasher, encoded), source); err != nil {
 		_ = target.Close()
 		_ = os.Remove(targetPath)
 		return QuarantineRecord{}, fmt.Errorf("寫入 quarantine 檔案失敗: %w", err)
@@ -113,6 +141,7 @@ func (s *FileActionService) Quarantine(result ScanResult) (QuarantineRecord, err
 		DetectedAt:     s.timeNow(),
 		SHA256:         hex.EncodeToString(hasher.Sum(nil)),
 		Status:         "quarantined",
+		Encoding:       quarantineEncodingXOR,
 	}
 	if err := s.saveRecord(record); err != nil {
 		return QuarantineRecord{}, err
@@ -136,8 +165,8 @@ func (s *FileActionService) Restore(recordID string) (QuarantineRecord, error) {
 	if err := os.MkdirAll(filepath.Dir(record.OriginalPath), 0700); err != nil {
 		return QuarantineRecord{}, fmt.Errorf("建立 restore 目錄失敗: %w", err)
 	}
-	if err := os.Rename(record.QuarantinePath, record.OriginalPath); err != nil {
-		return QuarantineRecord{}, fmt.Errorf("restore 檔案失敗: %w", err)
+	if err := restoreQuarantineFile(record); err != nil {
+		return QuarantineRecord{}, err
 	}
 	restoredAt := s.timeNow()
 	record.RestoredAt = &restoredAt
@@ -146,6 +175,43 @@ func (s *FileActionService) Restore(recordID string) (QuarantineRecord, error) {
 		return QuarantineRecord{}, err
 	}
 	return record, nil
+}
+
+// restoreQuarantineFile 將隔離檔還原回原位置。XOR 編碼的隔離檔需解碼後寫回；
+// 舊版未編碼（明文）的隔離檔則沿用 rename，避免無謂的複製。
+func restoreQuarantineFile(record QuarantineRecord) error {
+	if record.Encoding == quarantineEncodingNone {
+		if err := os.Rename(record.QuarantinePath, record.OriginalPath); err != nil {
+			return fmt.Errorf("restore 檔案失敗: %w", err)
+		}
+		return nil
+	}
+
+	source, err := os.Open(record.QuarantinePath)
+	if err != nil {
+		return fmt.Errorf("開啟 quarantine 檔案失敗: %w", err)
+	}
+	defer source.Close()
+
+	target, err := os.OpenFile(record.OriginalPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return fmt.Errorf("建立 restore 檔案失敗: %w", err)
+	}
+
+	decoded := &xorWriter{w: target, key: quarantineXORKey}
+	if _, err := io.Copy(decoded, source); err != nil {
+		_ = target.Close()
+		_ = os.Remove(record.OriginalPath)
+		return fmt.Errorf("解碼 quarantine 檔案失敗: %w", err)
+	}
+	if err := target.Close(); err != nil {
+		_ = os.Remove(record.OriginalPath)
+		return fmt.Errorf("關閉 restore 檔案失敗: %w", err)
+	}
+	if err := os.Remove(record.QuarantinePath); err != nil {
+		return fmt.Errorf("移除 quarantine 檔案失敗: %w", err)
+	}
+	return nil
 }
 
 func (s *FileActionService) LoadRecord(id string) (QuarantineRecord, error) {

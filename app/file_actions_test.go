@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -39,11 +41,30 @@ func TestQuarantineMovesFileAndStoresMetadata(t *testing.T) {
 	if _, err := os.Stat(file); !os.IsNotExist(err) {
 		t.Fatalf("expected original file to be removed, err=%v", err)
 	}
-	if content, err := os.ReadFile(record.QuarantinePath); err != nil || string(content) != "payload" {
-		t.Fatalf("unexpected quarantine file content %q err=%v", string(content), err)
+	content, err := os.ReadFile(record.QuarantinePath)
+	if err != nil {
+		t.Fatalf("read quarantine file: %v", err)
+	}
+	if string(content) == "payload" {
+		t.Fatal("expected quarantine file content to be encoded, not plaintext")
+	}
+	decoded := make([]byte, len(content))
+	for i := range content {
+		decoded[i] = content[i] ^ quarantineXORKey
+	}
+	if string(decoded) != "payload" {
+		t.Fatalf("unexpected decoded quarantine content %q", string(decoded))
 	}
 	if record.Signature != "Eicar-Test-Signature" || record.Status != "quarantined" || record.SHA256 == "" {
 		t.Fatalf("unexpected record: %#v", record)
+	}
+	if record.Encoding != quarantineEncodingXOR {
+		t.Fatalf("expected xor encoding, got %q", record.Encoding)
+	}
+	// SHA256 必須是原始內容的雜湊，而非編碼後內容。
+	originalSum := sha256.Sum256([]byte("payload"))
+	if record.SHA256 != hex.EncodeToString(originalSum[:]) {
+		t.Fatalf("sha256 should hash original content, got %s", record.SHA256)
 	}
 
 	stored, err := service.LoadRecord(record.ID)
@@ -76,6 +97,39 @@ func TestRestoreMovesQuarantineFileBack(t *testing.T) {
 	}
 	if _, err := os.Stat(record.QuarantinePath); !os.IsNotExist(err) {
 		t.Fatalf("expected quarantine file to move away, err=%v", err)
+	}
+}
+
+func TestRestoreDecodesLegacyPlaintextQuarantine(t *testing.T) {
+	service := testFileActionService(t)
+	originalPath := filepath.Join(t.TempDir(), "legacy.txt")
+	quarantineDir := filepath.Join(service.QuarantinePath, "files")
+	if err := os.MkdirAll(quarantineDir, 0700); err != nil {
+		t.Fatalf("mkdir quarantine: %v", err)
+	}
+	quarantinePath := filepath.Join(quarantineDir, "legacy.quarantine")
+	if err := os.WriteFile(quarantinePath, []byte("payload"), 0600); err != nil {
+		t.Fatalf("write legacy quarantine file: %v", err)
+	}
+	// Encoding 留空，模擬升級前未編碼的舊隔離檔。
+	if err := service.saveRecord(QuarantineRecord{
+		ID:             "legacy",
+		OriginalPath:   originalPath,
+		QuarantinePath: quarantinePath,
+		Status:         "quarantined",
+		Encoding:       quarantineEncodingNone,
+	}); err != nil {
+		t.Fatalf("save legacy record: %v", err)
+	}
+
+	if _, err := service.Restore("legacy"); err != nil {
+		t.Fatalf("restore legacy: %v", err)
+	}
+	if content, err := os.ReadFile(originalPath); err != nil || string(content) != "payload" {
+		t.Fatalf("unexpected restored content %q err=%v", string(content), err)
+	}
+	if _, err := os.Stat(quarantinePath); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy quarantine file to move away, err=%v", err)
 	}
 }
 

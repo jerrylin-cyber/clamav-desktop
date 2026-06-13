@@ -31,6 +31,9 @@ type App struct {
 	updateScheduler    *UpdateSchedulerService
 	selectFilesDialog  filesDialogRunner
 	selectFolderDialog folderDialogRunner
+	messageDialog      messageDialogRunner
+	hideWindow         windowHideRunner
+	startStatusItemRun func()
 
 	serviceMu sync.Mutex
 
@@ -65,8 +68,12 @@ func (a *App) startup(ctx context.Context) {
 	a.startBackgroundWorker(ctx)
 }
 
-// beforeClose 在使用者關閉視窗時觸發。回傳 true 會阻止 app 結束。
-// 當「保留狀態列圖示」開啟時，關閉視窗改為隱藏視窗並保留 process，
+type messageDialogRunner func(ctx context.Context, options wailsruntime.MessageDialogOptions) (string, error)
+
+type windowHideRunner func(ctx context.Context)
+
+// beforeClose 在使用者關閉視窗或按下 Cmd+Q 時觸發。回傳 true 會阻止 app 結束。
+// 當「保留狀態列圖示」開啟時，確認關閉後改為隱藏視窗並保留 process，
 // 讓 menu bar 圖示、背景排程與執行中的掃描都能持續運作；只有 menu bar 的「結束」才真正退出。
 func (a *App) beforeClose(ctx context.Context) bool {
 	if a.quitting.Load() {
@@ -76,12 +83,66 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	if err != nil {
 		return false
 	}
+	if !a.confirmClose(ctx) {
+		return true
+	}
 	if settings.Background.KeepMenuBarIcon {
 		a.startStatusItem()
-		wailsruntime.WindowHide(ctx)
+		a.showBackgroundCloseNotice(ctx)
+		a.windowHide(ctx)
 		return true
 	}
 	return false
+}
+
+func (a *App) confirmClose(ctx context.Context) bool {
+	selected, err := a.runMessageDialog(ctx, wailsruntime.MessageDialogOptions{
+		Type:          wailsruntime.QuestionDialog,
+		Title:         "是否關閉",
+		Message:       "要關閉 ClamAV Desktop 嗎？",
+		Buttons:       []string{"關閉", "取消"},
+		DefaultButton: "取消",
+		CancelButton:  "取消",
+	})
+	if err != nil {
+		return true
+	}
+	return dialogSelectionAllowsClose(selected)
+}
+
+func (a *App) showBackgroundCloseNotice(ctx context.Context) {
+	_, _ = a.runMessageDialog(ctx, wailsruntime.MessageDialogOptions{
+		Type:          wailsruntime.InfoDialog,
+		Title:         "仍然會在背景運作",
+		Message:       "ClamAV Desktop 會保留在 menu bar，背景排程與執行中的掃描會繼續運作。",
+		Buttons:       []string{"知道了"},
+		DefaultButton: "知道了",
+	})
+}
+
+func dialogSelectionAllowsClose(selected string) bool {
+	switch strings.ToLower(strings.TrimSpace(selected)) {
+	case "關閉", "yes", "ok":
+		return true
+	default:
+		return false
+	}
+}
+
+func (a *App) runMessageDialog(ctx context.Context, options wailsruntime.MessageDialogOptions) (string, error) {
+	run := a.messageDialog
+	if run == nil {
+		run = wailsruntime.MessageDialog
+	}
+	return run(ctx, options)
+}
+
+func (a *App) windowHide(ctx context.Context) {
+	run := a.hideWindow
+	if run == nil {
+		run = wailsruntime.WindowHide
+	}
+	run(ctx)
 }
 
 func (a *App) shutdown(ctx context.Context) {
@@ -222,13 +283,13 @@ func (a *App) GetAboutInfo() AboutInfo {
 		OfficialURL: "https://www.clamav.net/",
 		GitHubURL:   "https://github.com/lazyjerry/clamav-desktop",
 		Features: []FeatureStatus{
-			{Name: "病毒碼更新", Status: "可用", Note: "支援 app-managed config；外部執行環境會 fallback 到使用者可寫的 freshclam config。"},
-			{Name: "單次掃描", Status: "可用", Note: "透過 clamd INSTREAM 執行掃描工作。"},
-			{Name: "排程掃描", Status: "可用", Note: "Settings 與 Schedule 共用同一份設定，變更後會喚醒背景 worker。"},
-			{Name: "隔離區", Status: "可用", Note: "感染檔案可隔離、還原、移到垃圾桶或永久刪除。"},
-			{Name: "Runtime 引導", Status: "可用", Note: "以 Homebrew ClamAV 為主要支援路線；未通過檢測時顯示 blocking setup popup。"},
-			{Name: "Status bar", Status: "可用", Note: "已支援 NSStatusItem 狀態列選單。"},
-			{Name: "登入時啟動", Status: "可用", Note: "優先使用 SMAppService，失敗時 fallback per-user LaunchAgent。"},
+			{Name: "病毒碼更新", Status: "可用", Note: "手動或排程向 ClamAV 官方同步最新病毒碼；App 內建 freshclam 設定，外部執行環境會自動改用使用者可寫的 freshclam 設定。"},
+			{Name: "單次掃描", Status: "可用", Note: "選擇檔案或資料夾即時掃描，透過 clamd 的 INSTREAM 串流送檢，超過串流上限的大檔會自動改以路徑掃描。"},
+			{Name: "排程掃描", Status: "可用", Note: "可設定每日／每週自動掃描指定路徑；設定頁與排程頁共用同一份設定，變更後立即喚醒背景 worker 生效。"},
+			{Name: "隔離區", Status: "可用", Note: "將感染檔案移出原位置並以 XOR 編碼存放，避免惡意內容以原始形態留存於磁碟；可隨時還原、移到垃圾桶或永久刪除。"},
+			{Name: "Runtime 引導", Status: "可用", Note: "以 Homebrew 版 ClamAV 為主要安裝路線；偵測到執行環境未就緒時，會跳出引導視窗協助完成安裝與啟動。"},
+			{Name: "Status bar", Status: "可用", Note: "在 macOS 選單列提供狀態列圖示與快速選單（NSStatusItem），方便背景常駐時操作與查看狀態。"},
+			{Name: "登入時啟動", Status: "可用", Note: "登入 macOS 時自動啟動以維持背景排程運作；優先使用系統 SMAppService，失敗時改用 per-user LaunchAgent。"},
 		},
 	}
 }

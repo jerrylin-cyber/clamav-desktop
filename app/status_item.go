@@ -15,7 +15,11 @@ func (a *App) startStatusItem() {
 	statusItemState.Lock()
 	statusItemState.app = a
 	statusItemState.Unlock()
-	nativeStartStatusItem()
+	run := a.startStatusItemRun
+	if run == nil {
+		run = nativeStartStatusItem
+	}
+	run()
 }
 
 func statusItemOpenWindow() {
