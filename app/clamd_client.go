@@ -24,6 +24,7 @@ var errStreamMaxLength = errors.New("INSTREAM 超過 StreamMaxLength")
 
 type clamdDialer func(ctx context.Context, network string, address string) (net.Conn, error)
 
+// ClamDClient 透過 Unix socket 與 clamd daemon 溝通，支援 PING、SCAN 與 INSTREAM 串流掃描。
 type ClamDClient struct {
 	SocketPath      string
 	DialTimeout     time.Duration
@@ -33,20 +34,24 @@ type ClamDClient struct {
 	dial            clamdDialer
 }
 
+// FileReadError 表示掃描前讀取來源檔案失敗（例如權限不足），保留原因與底層錯誤供 Unwrap。
 type FileReadError struct {
 	Path   string
 	Reason string
 	Err    error
 }
 
+// Error 實作 error 介面，輸出「原因：路徑」格式。
 func (e FileReadError) Error() string {
 	return fmt.Sprintf("%s：%s", e.Reason, e.Path)
 }
 
+// Unwrap 回傳底層錯誤，支援 errors.Is / errors.As。
 func (e FileReadError) Unwrap() error {
 	return e.Err
 }
 
+// Ping 送出 PING 指令確認 clamd 是否存活，回應非 PONG 視為錯誤。
 func (c ClamDClient) Ping(ctx context.Context) error {
 	reply, err := c.command(ctx, "PING")
 	if err != nil {
@@ -58,10 +63,12 @@ func (c ClamDClient) Ping(ctx context.Context) error {
 	return nil
 }
 
+// VersionCommands 送出 VERSIONCOMMANDS 取得 clamd 版本與支援的指令清單。
 func (c ClamDClient) VersionCommands(ctx context.Context) (string, error) {
 	return c.command(ctx, "VERSIONCOMMANDS")
 }
 
+// Scan 以 SCAN 指令請 clamd 直接讀取磁碟路徑掃描；適用於超過串流上限的大檔。
 func (c ClamDClient) Scan(ctx context.Context, path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		return "", errors.New("SCAN path 不可為空")
@@ -69,6 +76,7 @@ func (c ClamDClient) Scan(ctx context.Context, path string) (string, error) {
 	return c.command(ctx, "SCAN "+path)
 }
 
+// InstreamFile 開啟指定檔案並以 INSTREAM 串流送交 clamd 掃描，讀檔失敗時回傳 FileReadError。
 func (c ClamDClient) InstreamFile(ctx context.Context, path string) (string, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -79,6 +87,7 @@ func (c ClamDClient) InstreamFile(ctx context.Context, path string) (string, err
 	return c.Instream(ctx, file)
 }
 
+// Instream 以 INSTREAM 指令分塊串流 reader 內容給 clamd 掃描，並回傳掃描結果字串。
 func (c ClamDClient) Instream(ctx context.Context, reader io.Reader) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err

@@ -76,6 +76,8 @@ func newUpdateSchedulerService(freshclam *FreshclamService, powerPolicy *PowerPo
 	return &UpdateSchedulerService{freshclam: freshclam, powerPolicy: powerPolicy}
 }
 
+// NextUpdateRun 回傳 after 之後下一次病毒碼更新的觸發時間，並加入依機器身分決定的固定 jitter 以分散伺服器負載；
+// schedule 未啟用或無效時回傳 false。
 func (s *UpdateSchedulerService) NextUpdateRun(schedule UpdateSchedule, after time.Time) (time.Time, bool) {
 	if !schedule.Enabled {
 		return time.Time{}, false
@@ -89,6 +91,7 @@ func (s *UpdateSchedulerService) NextUpdateRun(schedule UpdateSchedule, after ti
 	return next.Add(jitter), true
 }
 
+// UpdateDue 回報病毒碼更新是否到期：schedule 已啟用且依 lastRun 推算的觸發時間已過。
 func (s *UpdateSchedulerService) UpdateDue(schedule UpdateSchedule, now time.Time, lastRun time.Time) bool {
 	next, ok := s.NextUpdateRun(schedule, lastRun)
 	if !ok {
@@ -97,6 +100,8 @@ func (s *UpdateSchedulerService) UpdateDue(schedule UpdateSchedule, now time.Tim
 	return !now.Before(next)
 }
 
+// RunScheduledUpdate 執行排程病毒碼更新。共用執行環境（system-shared）的更新由系統管理而直接延後；
+// 其餘情況依電源政策決定是否延後，否則呼叫 freshclam 更新。
 func (s *UpdateSchedulerService) RunScheduledUpdate(ctx context.Context, settings Settings, emit func(FreshclamEvent)) (DatabaseStatus, DeferDecision, error) {
 	if settings.RuntimeMode == "system-shared" {
 		return DatabaseStatus{}, DeferDecision{Defer: true, Reason: "病毒碼更新由 system updater 管理"}, nil

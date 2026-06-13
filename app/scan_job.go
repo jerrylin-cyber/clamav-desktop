@@ -16,6 +16,7 @@ import (
 	"time"
 )
 
+// ScanJob 代表一次掃描工作的中繼資料與彙總統計，持久化後可在「結果」與「紀錄」頁查看。
 type ScanJob struct {
 	ID           string      `json:"id"`
 	Paths        []string    `json:"paths"`
@@ -28,11 +29,13 @@ type ScanJob struct {
 	Errors       int         `json:"errors"`
 }
 
+// ScanOptions 為掃描選項，例如是否遞迴掃描子目錄。
 type ScanOptions struct {
 	Recursive bool `json:"recursive"`
 	AllMatch  bool `json:"allMatch"`
 }
 
+// ScanProgressEvent 為掃描進行中的即時進度事件，透過 Wails 事件推播給前端更新畫面。
 type ScanProgressEvent struct {
 	JobID        string `json:"jobId"`
 	Status       string `json:"status"`
@@ -42,6 +45,7 @@ type ScanProgressEvent struct {
 	Errors       int    `json:"errors"`
 }
 
+// ScanResult 為單一檔案的掃描結果（乾淨、感染、錯誤等），感染時附上病毒簽章名稱。
 type ScanResult struct {
 	Path      string `json:"path"`
 	Status    string `json:"status"`
@@ -52,6 +56,7 @@ type ScanResult struct {
 
 type scanFileFunc func(ctx context.Context, path string) (string, error)
 
+// ScanJobManager 建立、執行、查詢與取消掃描工作，並負責工作與結果的持久化。
 type ScanJobManager struct {
 	JobsPath    string
 	ResultsPath string
@@ -79,6 +84,7 @@ func newScanJobManager(homeDir string, client ClamDClient) *ScanJobManager {
 	}
 }
 
+// CreateScanJob 依路徑與選項建立並持久化一筆新的掃描工作（初始狀態），但不立即執行。
 func (m *ScanJobManager) CreateScanJob(paths []string, options ScanOptions) (ScanJob, error) {
 	normalizedPaths, err := normalizeScanPaths(paths)
 	if err != nil {
@@ -98,6 +104,7 @@ func (m *ScanJobManager) CreateScanJob(paths []string, options ScanOptions) (Sca
 	return job, nil
 }
 
+// RunScan 走訪指定路徑逐檔掃描，過程透過 emit 推播進度，結束後保存工作統計與結果並回傳；支援透過 context 取消。
 func (m *ScanJobManager) RunScan(ctx context.Context, paths []string, options ScanOptions, emit func(ScanProgressEvent)) (ScanJob, []ScanResult, error) {
 	job, err := m.CreateScanJob(paths, options)
 	if err != nil {
@@ -196,6 +203,7 @@ func (m *ScanJobManager) RunScan(ctx context.Context, paths []string, options Sc
 	return job, results, nil
 }
 
+// GetScanJob 依 ID 讀取已保存的掃描工作中繼資料。
 func (m *ScanJobManager) GetScanJob(id string) (ScanJob, error) {
 	content, err := os.ReadFile(m.jobPath(id))
 	if err != nil {
@@ -208,6 +216,7 @@ func (m *ScanJobManager) GetScanJob(id string) (ScanJob, error) {
 	return job, nil
 }
 
+// LoadResults 依工作 ID 讀取該次掃描保存的逐檔結果清單。
 func (m *ScanJobManager) LoadResults(jobID string) ([]ScanResult, error) {
 	content, err := os.ReadFile(m.resultsPath(jobID))
 	if err != nil {
@@ -249,6 +258,7 @@ func (m *ScanJobManager) ListScanJobs() ([]ScanJob, error) {
 	return jobs, nil
 }
 
+// CancelScanJob 取消執行中的掃描工作，回傳是否確實有對應的執行中工作被取消。
 func (m *ScanJobManager) CancelScanJob(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()

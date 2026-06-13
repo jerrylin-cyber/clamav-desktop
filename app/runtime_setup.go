@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// RuntimeSetupStatus 描述安裝/啟動引導的整體狀態：是否就緒、是否需阻擋操作，以及待辦步驟。
 type RuntimeSetupStatus struct {
 	Ready       bool               `json:"ready"`
 	Blocking    bool               `json:"blocking"`
@@ -16,6 +17,7 @@ type RuntimeSetupStatus struct {
 	RemoveNotes []string           `json:"removeNotes"`
 }
 
+// RuntimeSetupStep 為引導畫面中的單一步驟，可附上可複製的指令或外部連結。
 type RuntimeSetupStep struct {
 	Title   string `json:"title"`
 	Detail  string `json:"detail"`
@@ -35,7 +37,7 @@ func runtimeSetupStatus() RuntimeSetupStatus {
 		Health:   health,
 		Steps:    runtimeSetupSteps(profile, health),
 		RemoveNotes: []string{
-			"ClamAV Desktop 不再移除 Homebrew 或手動安裝的 ClamAV runtime。",
+			"ClamAV Desktop 不自動移除 Homebrew 或手動安裝的 ClamAV runtime。",
 			"若要移除 Homebrew ClamAV，請先關閉 app，再執行 `brew uninstall clamav`。",
 			"使用者資料仍可在 Settings 的「使用者資料」區塊移除。",
 		},

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -97,6 +98,48 @@ func TestRestoreMovesQuarantineFileBack(t *testing.T) {
 	}
 	if _, err := os.Stat(record.QuarantinePath); !os.IsNotExist(err) {
 		t.Fatalf("expected quarantine file to move away, err=%v", err)
+	}
+}
+
+func TestRestorePreservesOriginalFilenameAndBytes(t *testing.T) {
+	originalDir := t.TempDir()
+	originalName := "original scan result.txt"
+	originalPath := filepath.Join(originalDir, originalName)
+	originalContent := []byte{0x00, 0xFF, 0x10, 'p', 'a', 'y', 'l', 'o', 'a', 'd', '\n'}
+	if err := os.WriteFile(originalPath, originalContent, 0644); err != nil {
+		t.Fatalf("write original file: %v", err)
+	}
+	service := testFileActionService(t)
+
+	record, err := service.Quarantine(ScanResult{Path: originalPath, Status: "infected", Signature: "Sig"})
+	if err != nil {
+		t.Fatalf("quarantine: %v", err)
+	}
+	if _, err := os.Stat(originalPath); !os.IsNotExist(err) {
+		t.Fatalf("expected original file to be removed after quarantine, err=%v", err)
+	}
+
+	restored, err := service.Restore(record.ID)
+	if err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+
+	if restored.OriginalPath != originalPath {
+		t.Fatalf("expected original path %q, got %q", originalPath, restored.OriginalPath)
+	}
+	entries, err := os.ReadDir(originalDir)
+	if err != nil {
+		t.Fatalf("read original dir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != originalName {
+		t.Fatalf("expected restored filename %q, got entries %#v", originalName, entries)
+	}
+	restoredContent, err := os.ReadFile(originalPath)
+	if err != nil {
+		t.Fatalf("read restored file: %v", err)
+	}
+	if !bytes.Equal(restoredContent, originalContent) {
+		t.Fatalf("restored content mismatch: got %v want %v", restoredContent, originalContent)
 	}
 }
 

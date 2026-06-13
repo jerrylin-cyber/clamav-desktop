@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// UserDataRemovalOptions 指定要移除哪幾類使用者資料；各旗標獨立，可組合勾選。
 type UserDataRemovalOptions struct {
 	RemoveSettings    bool `json:"removeSettings"`
 	RemoveScanJobs    bool `json:"removeScanJobs"`
@@ -16,6 +17,7 @@ type UserDataRemovalOptions struct {
 	RemoveLogs        bool `json:"removeLogs"`
 }
 
+// UserDataRemovalResult 回報實際移除與略過（不存在）的路徑，供前端顯示結果。
 type UserDataRemovalResult struct {
 	Removed []string `json:"removed"`
 	Skipped []string `json:"skipped"`
@@ -30,6 +32,8 @@ type userDataPaths struct {
 	Logs       string
 }
 
+// RemoveUserData 依選項移除目前使用者的 ClamAV Desktop 資料（設定、掃描工作、結果、隔離區、紀錄）。
+// 作為 Wails binding 供前端呼叫；移除前會驗證目標路徑確實位於 App 的資料目錄內，避免誤刪其他位置。
 func (a *App) RemoveUserData(options UserDataRemovalOptions) (UserDataRemovalResult, error) {
 	homeDir, _ := os.UserHomeDir()
 	return removeUserData(userDataPathsForHome(homeDir), options)

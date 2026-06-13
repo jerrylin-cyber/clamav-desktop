@@ -19,16 +19,19 @@ const (
 type systemSettingsRunner func(context.Context, string) error
 type systemPermissionChecker func(string, bool) error
 
+// SystemPermissionCheck 為單一 macOS 權限的檢測結果（是否授權、狀態碼與說明）。
 type SystemPermissionCheck struct {
 	Authorized bool   `json:"authorized"`
 	Status     string `json:"status"`
 	Message    string `json:"message"`
 }
 
+// SystemPermissionStatus 彙整 App 關注的 macOS 權限狀態，序列化給前端顯示。
 type SystemPermissionStatus struct {
 	FullDiskAccess SystemPermissionCheck `json:"fullDiskAccess"`
 }
 
+// SystemSettingsService 負責開啟 macOS 系統設定的特定面板，並檢測權限狀態；欄位可在測試中替換以注入假行為。
 type SystemSettingsService struct {
 	OpenURL   systemSettingsRunner
 	HomeDir   string
@@ -39,14 +42,17 @@ func newSystemSettingsService() *SystemSettingsService {
 	return &SystemSettingsService{OpenURL: openSystemSettingsURL}
 }
 
+// OpenFullDiskAccess 開啟「系統設定 → 隱私權與安全性 → 完整磁碟取用權限」面板。
 func (s *SystemSettingsService) OpenFullDiskAccess(ctx context.Context) error {
 	return s.open(ctx, fullDiskAccessSettingsURL)
 }
 
+// OpenNotifications 開啟「系統設定 → 通知」面板。
 func (s *SystemSettingsService) OpenNotifications(ctx context.Context) error {
 	return s.open(ctx, notificationSettingsURL)
 }
 
+// PermissionStatus 回傳目前 App 關注的 macOS 權限檢測結果。
 func (s *SystemSettingsService) PermissionStatus() SystemPermissionStatus {
 	return SystemPermissionStatus{
 		FullDiskAccess: s.fullDiskAccessStatus(),

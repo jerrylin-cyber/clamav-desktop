@@ -28,6 +28,7 @@ const (
 	quarantineEncodingXOR  = "xor"
 )
 
+// QuarantineRecord 為一筆隔離紀錄的中繼資料：原始/隔離路徑、簽章、雜湊、狀態與編碼方式。
 type QuarantineRecord struct {
 	ID             string     `json:"id"`
 	OriginalPath   string     `json:"originalPath"`
@@ -46,6 +47,7 @@ type xorWriter struct {
 	key byte
 }
 
+// Write 實作 io.Writer，對每個位元組套用 XOR key 後寫入底層 writer。
 func (x *xorWriter) Write(p []byte) (int, error) {
 	buf := make([]byte, len(p))
 	for i := range p {
@@ -58,12 +60,14 @@ type openLocationRunner func(ctx context.Context, path string) error
 
 type trashRunner func(ctx context.Context, path string) error
 
+// AuditEntry 為一筆檔案操作稽核紀錄（移到垃圾桶、永久刪除等），附時間與目標路徑。
 type AuditEntry struct {
 	At     time.Time `json:"at"`
 	Action string    `json:"action"`
 	Path   string    `json:"path"`
 }
 
+// FileActionService 處理掃描結果與隔離檔的操作：隔離、還原、開啟位置、移到垃圾桶、永久刪除，並寫入稽核紀錄。
 type FileActionService struct {
 	QuarantinePath string
 	openLocation   openLocationRunner
@@ -78,10 +82,12 @@ func newFileActionService(homeDir string) *FileActionService {
 	}
 }
 
+// OpenScanResultLocation 在 Finder 中顯示掃描結果檔案的所在位置。
 func (s *FileActionService) OpenScanResultLocation(ctx context.Context, result ScanResult) error {
 	return s.openAllowedLocation(ctx, result.Path)
 }
 
+// OpenQuarantineLocation 在 Finder 中顯示隔離檔位置；已還原的紀錄則顯示其原始位置。
 func (s *FileActionService) OpenQuarantineLocation(ctx context.Context, record QuarantineRecord) error {
 	if record.Status == "restored" {
 		return s.openAllowedLocation(ctx, record.OriginalPath)
@@ -89,6 +95,7 @@ func (s *FileActionService) OpenQuarantineLocation(ctx context.Context, record Q
 	return s.openAllowedLocation(ctx, record.QuarantinePath)
 }
 
+// Quarantine 將感染檔案以 XOR 編碼搬入隔離區、刪除原始檔，並保存原始內容的 SHA256 與紀錄；僅接受 infected 結果。
 func (s *FileActionService) Quarantine(result ScanResult) (QuarantineRecord, error) {
 	if strings.TrimSpace(result.Path) == "" {
 		return QuarantineRecord{}, errors.New("scan result path 不可為空")
@@ -149,6 +156,7 @@ func (s *FileActionService) Quarantine(result ScanResult) (QuarantineRecord, err
 	return record, nil
 }
 
+// Restore 將隔離檔還原回原始位置（XOR 檔解碼、舊明文檔沿用 rename）；原位置已有檔案時拒絕還原以免覆蓋。
 func (s *FileActionService) Restore(recordID string) (QuarantineRecord, error) {
 	record, err := s.LoadRecord(recordID)
 	if err != nil {
@@ -214,6 +222,7 @@ func restoreQuarantineFile(record QuarantineRecord) error {
 	return nil
 }
 
+// LoadRecord 依 ID 讀取並解析隔離紀錄的中繼資料。
 func (s *FileActionService) LoadRecord(id string) (QuarantineRecord, error) {
 	content, err := os.ReadFile(s.recordPath(id))
 	if err != nil {

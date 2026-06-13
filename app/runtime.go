@@ -13,11 +13,13 @@ const systemRuntimeBase = "/Library/Application Support/ClamAVDesktop"
 
 var dialUnix = net.DialTimeout
 
+// RuntimeHealth 彙整 ClamAV 執行環境的整體健康狀態與各項檢查明細。
 type RuntimeHealth struct {
 	Status string         `json:"status"`
 	Checks []RuntimeCheck `json:"checks"`
 }
 
+// RuntimeCheck 為單一項目的健康檢查結果（如 clamd、freshclam、病毒碼路徑）。
 type RuntimeCheck struct {
 	Name    string `json:"name"`
 	Path    string `json:"path"`
@@ -25,6 +27,7 @@ type RuntimeCheck struct {
 	Message string `json:"message"`
 }
 
+// RuntimeResolver 依系統、家目錄、手動指定與外部候選路徑，解析出實際採用的 ClamAV 執行環境。
 type RuntimeResolver struct {
 	systemBase         string
 	homeDir            string
@@ -41,6 +44,7 @@ func runtimeProfile() RuntimeProfile {
 	}.Resolve()
 }
 
+// Resolve 依序評估候選執行環境，回傳第一個可用的 RuntimeProfile；皆不可用時回傳預設 profile。
 func (r RuntimeResolver) Resolve() RuntimeProfile {
 	for _, candidate := range r.candidateProfiles() {
 		if isExecutable(candidate.ClamdPath) || isExecutable(candidate.FreshclamPath) || isExecutable(candidate.ClamScanPath) {

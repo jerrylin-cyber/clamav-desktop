@@ -17,6 +17,7 @@ import (
 
 var errFreshclamUpdateInProgress = errors.New("freshclam update already running")
 
+// DatabaseStatus 描述病毒碼資料庫的位置、最後更新時間、版本與簽章數量，序列化給前端顯示。
 type DatabaseStatus struct {
 	Path        string    `json:"path"`
 	LastUpdated time.Time `json:"lastUpdated"`
@@ -25,18 +26,21 @@ type DatabaseStatus struct {
 	Error       string    `json:"error"`
 }
 
+// FreshclamEvent 為更新過程中的一行輸出事件（stdout/stderr），即時推播給前端顯示進度。
 type FreshclamEvent struct {
 	Stream  string    `json:"stream"`
 	Message string    `json:"message"`
 	At      time.Time `json:"at"`
 }
 
+// FreshclamError 為分類過的更新錯誤（如 config、network、permission、lock），方便前端對應提示與處理。
 type FreshclamError struct {
 	Category string `json:"category"`
 	Message  string `json:"message"`
 	Err      error  `json:"-"`
 }
 
+// Error 回傳錯誤訊息；訊息為空時退回分類字串。
 func (e FreshclamError) Error() string {
 	if e.Message == "" {
 		return e.Category
@@ -44,12 +48,14 @@ func (e FreshclamError) Error() string {
 	return e.Message
 }
 
+// Unwrap 回傳底層錯誤，支援 errors.Is / errors.As。
 func (e FreshclamError) Unwrap() error {
 	return e.Err
 }
 
 type freshclamRunner func(ctx context.Context, command string, args []string, stdout io.Writer, stderr io.Writer) error
 
+// FreshclamService 封裝 freshclam 病毒碼更新：載入狀態、執行更新，並以 mutex 防止重複執行。
 type FreshclamService struct {
 	Profile               RuntimeProfile
 	StatusPath            string
@@ -67,6 +73,7 @@ func newFreshclamService(profile RuntimeProfile) *FreshclamService {
 	return &FreshclamService{Profile: profile}
 }
 
+// LoadStatus 讀取已保存的病毒碼狀態；狀態檔不存在時回傳僅含路徑的空狀態。
 func (s *FreshclamService) LoadStatus() (DatabaseStatus, error) {
 	path := s.statusPath()
 	status := DatabaseStatus{Path: s.databasePath()}
@@ -86,6 +93,7 @@ func (s *FreshclamService) LoadStatus() (DatabaseStatus, error) {
 	return status, nil
 }
 
+// UpdateDatabase 執行 freshclam 更新病毒碼，過程逐行透過 emit 推播事件；同時間僅允許一次更新（否則回傳 lock 錯誤）。
 func (s *FreshclamService) UpdateDatabase(ctx context.Context, emit func(FreshclamEvent)) (DatabaseStatus, error) {
 	if !s.startUpdate() {
 		err := FreshclamError{
@@ -384,6 +392,7 @@ func newFreshclamEventWriter(stream string, emit func(FreshclamEvent), now func(
 	return &freshclamEventWriter{stream: stream, emit: emit, now: now}
 }
 
+// Write 實作 io.Writer，依換行切分緩衝內容並逐行發出 FreshclamEvent。
 func (w *freshclamEventWriter) Write(p []byte) (int, error) {
 	for _, b := range p {
 		if b == '\n' {
@@ -395,6 +404,7 @@ func (w *freshclamEventWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
+// Flush 將緩衝中尚未換行的殘餘內容作為最後一行事件發出。
 func (w *freshclamEventWriter) Flush() {
 	w.emitLine()
 }

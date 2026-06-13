@@ -18,7 +18,7 @@ import {
     MoveQuarantineRecordToTrash,
     MoveScanResultToTrash,
     OpenFullDiskAccessSettings,
-    OpenNotificationSettings,
+    // OpenNotificationSettings, // 通知功能暫時隱藏
     OpenQuarantineLocation,
     OpenScanResultLocation,
     PermanentlyDeleteQuarantineRecord,
@@ -35,7 +35,7 @@ import {
     UpdateDatabase
 } from "../wailsjs/go/main/App";
 import {main} from "../wailsjs/go/models";
-import {BrowserOpenURL, CheckNotificationAuthorization, EventsOn} from "../wailsjs/runtime/runtime";
+import {BrowserOpenURL, EventsOn} from "../wailsjs/runtime/runtime"; // CheckNotificationAuthorization 暫時移除（通知功能隱藏）
 
 const pages = [
     {id: "dashboard", label: "儀表板"},
@@ -90,10 +90,11 @@ type DialogState = {
     onConfirm?: () => void;
 };
 
-type PermissionDisplayStatus = {
-    status: string;
-    message?: string;
-};
+// 通知功能暫時隱藏：未簽章 build 下 macOS 通知無法穩定運作
+// type PermissionDisplayStatus = {
+//     status: string;
+//     message?: string;
+// };
 
 const RESULTS_PAGE_SIZE = 25;
 
@@ -105,7 +106,8 @@ function App() {
     const [forceShowSetup, setForceShowSetup] = useState(false);
     const [settings, setSettings] = useState<main.Settings | null>(null);
     const [systemPermissions, setSystemPermissions] = useState<main.SystemPermissionStatus | null>(null);
-    const [notificationPermission, setNotificationPermission] = useState<PermissionDisplayStatus>({status: "unknown"});
+    // 通知功能暫時隱藏：未簽章 build 下 macOS 通知無法穩定運作
+    // const [notificationPermission, setNotificationPermission] = useState<PermissionDisplayStatus>({status: "unknown"});
     const [loginItemStatus, setLoginItemStatus] = useState<main.LoginItemStatus | null>(null);
     const [schedulePathsText, setSchedulePathsText] = useState("");
     const [scanPathsText, setScanPathsText] = useState("");
@@ -282,16 +284,17 @@ function App() {
             .catch((error) => {
                 toastError("讀取 macOS 權限狀態失敗", error);
             });
-        CheckNotificationAuthorization()
-            .then((authorized) => {
-                setNotificationPermission({status: authorized ? "authorized" : "denied"});
-            })
-            .catch((error) => {
-                setNotificationPermission({
-                    status: "unknown",
-                    message: error instanceof Error ? error.message : "無法讀取 Notifications 權限狀態",
-                });
-            });
+        // 通知功能暫時隱藏：未簽章 build 下 macOS 通知無法穩定運作
+        // CheckNotificationAuthorization()
+        //     .then((authorized) => {
+        //         setNotificationPermission({status: authorized ? "authorized" : "denied"});
+        //     })
+        //     .catch((error) => {
+        //         setNotificationPermission({
+        //             status: "unknown",
+        //             message: error instanceof Error ? error.message : "無法讀取 Notifications 權限狀態",
+        //         });
+        //     });
     }
 
     function runDatabaseUpdate() {
@@ -463,13 +466,14 @@ function App() {
             });
     }
 
-    function openNotificationSettings() {
-        OpenNotificationSettings()
-            .then(() => pushToast("info", "已開啟 Notifications 設定"))
-            .catch((error) => {
-                toastError("無法開啟 Notifications 設定", error);
-            });
-    }
+    // 通知功能暫時隱藏：未簽章 build 下 macOS 通知無法穩定運作
+    // function openNotificationSettings() {
+    //     OpenNotificationSettings()
+    //         .then(() => pushToast("info", "已開啟 Notifications 設定"))
+    //         .catch((error) => {
+    //             toastError("無法開啟 Notifications 設定", error);
+    //         });
+    // }
 
     function explainRuntimeInstall() {
         loadRuntimeSetup();
@@ -756,6 +760,27 @@ function App() {
     function renderPage() {
         if (activePage === "dashboard") {
             const runtimeWarnings = status?.runtime.warnings ?? [];
+            const latestScanJob = resultsJobs[0];
+            const scanStats = resultsJobs.reduce((acc, job) => {
+                acc.scans += 1;
+                acc.scannedFiles += job.scannedFiles;
+                acc.detections += job.detections;
+                acc.errors += job.errors;
+                return acc;
+            }, {scans: 0, scannedFiles: 0, detections: 0, errors: 0});
+
+            const scheduledPaths = normalizePaths(settings?.scanSchedule.paths ?? []);
+            const scheduledScanJobs = scheduledPaths.length === 0
+                ? []
+                : resultsJobs.filter((job) => samePathSet(job.paths, scheduledPaths));
+            const latestScheduledScanJob = scheduledScanJobs[0];
+            const scheduledStats = scheduledScanJobs.reduce((acc, job) => {
+                acc.scans += 1;
+                acc.scannedFiles += job.scannedFiles;
+                acc.detections += job.detections;
+                acc.errors += job.errors;
+                return acc;
+            }, {scans: 0, scannedFiles: 0, detections: 0, errors: 0});
 
             return (
                 <section className="panel">
@@ -783,14 +808,51 @@ function App() {
                             <p>執行檔、設定檔、病毒碼資料庫、socket 與 clamd PING</p>
                         </article>
                         <article className="statusCard">
-                            <span>掃描引擎</span>
-                            <strong>clamd + INSTREAM</strong>
-                            <p>正式掃描工作不自動改用 clamscan</p>
-                        </article>
-                        <article className="statusCard">
                             <span>病毒碼資料庫</span>
                             <strong>{formatDatabaseUpdated(status?.database)}</strong>
                             <p>{formatDatabaseSummary(status?.database)}</p>
+                        </article>
+                        <article className="statusCard">
+                            <span>最近掃描紀錄摘要</span>
+                            {latestScanJob ? (
+                                <>
+                                    <strong>{new Date(latestScanJob.startedAt).toLocaleString("zh-TW")}　{formatScanStatus(latestScanJob.status)}</strong>
+                                    <p>掃描路徑 {latestScanJob.paths.length} 個，掃描 {latestScanJob.scannedFiles} 筆，偵測 {latestScanJob.detections} 筆</p>
+                                </>
+                            ) : (
+                                <>
+                                    <strong>尚無掃描紀錄</strong>
+                                    <p>尚未建立任何掃描工作</p>
+                                </>
+                            )}
+                        </article>
+                        <article className="statusCard">
+                            <span>掃描紀錄統計</span>
+                            <strong>{scanStats.scans.toLocaleString("zh-TW")} 次掃描</strong>
+                            <p>累計掃描 {scanStats.scannedFiles.toLocaleString("zh-TW")} 筆，偵測 {scanStats.detections.toLocaleString("zh-TW")} 筆，錯誤 {scanStats.errors.toLocaleString("zh-TW")} 筆</p>
+                        </article>
+                        <article className="statusCard">
+                            <span>排程掃描紀錄摘要統計</span>
+                            {!settings?.scanSchedule.enabled ? (
+                                <>
+                                    <strong>排程掃描未啟用</strong>
+                                    <p>請先在排程頁啟用排程掃描</p>
+                                </>
+                            ) : scheduledPaths.length === 0 ? (
+                                <>
+                                    <strong>尚未設定排程路徑</strong>
+                                    <p>請先設定排程掃描路徑後再統計</p>
+                                </>
+                            ) : (
+                                <>
+                                    <strong>{scheduledStats.scans.toLocaleString("zh-TW")} 次排程掃描</strong>
+                                    <p>
+                                        最近：{latestScheduledScanJob ? `${new Date(latestScheduledScanJob.startedAt).toLocaleString("zh-TW")}（${formatScanStatus(latestScheduledScanJob.status)}）` : "尚無排程掃描紀錄"}
+                                        <br/>
+                                        累計掃描 {scheduledStats.scannedFiles.toLocaleString("zh-TW")} 筆，偵測 {scheduledStats.detections.toLocaleString("zh-TW")} 筆，錯誤 {scheduledStats.errors.toLocaleString("zh-TW")} 筆
+                                    </p>
+                                </>
+                            )}
                         </article>
                     </div>
                     <div className="runtimeBox">
@@ -1307,7 +1369,6 @@ function App() {
                                     })} type="checkbox"/>
                                 </label>
                             </div>
-                            <p className="settingHint">「啟動時隱藏視窗」需先開啟「保留狀態列圖示」，否則啟動後將沒有入口可開啟視窗。</p>
                         </section>
                         <section>
                             <h3>macOS 權限</h3>
@@ -1316,11 +1377,13 @@ function App() {
                                 <strong title={systemPermissions?.fullDiskAccess.message}>{formatPermissionStatus(systemPermissions?.fullDiskAccess.status)}</strong>
                                 <button className="secondaryButton" onClick={openFullDiskAccessSettings} type="button">開啟設定</button>
                             </div>
+                            {/* 通知功能暫時隱藏：未簽章 build 下 macOS 通知無法穩定運作，因此先不顯示
                             <div className="settingsStatus">
                                 <span>Notifications <HelpTip text="允許通知後，掃描結果與排程事件才能以 macOS 系統通知提醒你。"/></span>
                                 <strong title={notificationPermission.message}>{formatPermissionStatus(notificationPermission.status)}</strong>
                                 <button className="secondaryButton" onClick={openNotificationSettings} type="button">開啟設定</button>
                             </div>
+                            */}
                             <button className="secondaryButton" onClick={loadSystemPermissionStatus} type="button">重新檢測</button>
                         </section>
                         <section>
@@ -2089,6 +2152,22 @@ function formatQuarantineStatus(status: string) {
         return "已永久刪除";
     }
     return status;
+}
+
+function normalizePaths(paths: string[]) {
+    return paths
+        .map((path) => path.trim())
+        .filter((path) => path.length > 0)
+        .sort();
+}
+
+function samePathSet(a: string[], b: string[]) {
+    if (a.length !== b.length) {
+        return false;
+    }
+    const normalizedA = normalizePaths(a);
+    const normalizedB = normalizePaths(b);
+    return normalizedA.every((path, index) => path === normalizedB[index]);
 }
 
 export default App;

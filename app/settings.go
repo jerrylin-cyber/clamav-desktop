@@ -12,6 +12,7 @@ const currentSettingsSchemaVersion = 1
 
 var errUnsupportedSettingsVersion = errors.New("settings schema version 不支援")
 
+// Settings 為 App 的完整使用者設定，含 schema 版本以支援升級遷移；序列化為 settings.json。
 type Settings struct {
 	SchemaVersion  int            `json:"schemaVersion"`
 	RuntimeMode    string         `json:"runtimeMode"`
@@ -23,6 +24,7 @@ type Settings struct {
 	Actions        ActionSettings `json:"actions"`
 }
 
+// ScanSchedule 描述排程掃描的開關、頻率、時間、星期與掃描路徑。
 type ScanSchedule struct {
 	Enabled   bool     `json:"enabled"`
 	Frequency string   `json:"frequency"`
@@ -31,32 +33,38 @@ type ScanSchedule struct {
 	Paths     []string `json:"paths"`
 }
 
+// UpdateSchedule 描述病毒碼自動更新的開關、頻率與時間。
 type UpdateSchedule struct {
 	Enabled   bool   `json:"enabled"`
 	Frequency string `json:"frequency"`
 	TimeOfDay string `json:"timeOfDay"`
 }
 
+// PowerPolicy 控制排程工作在電池、省電模式下是否執行，以及是否延後到充電時補執行。
 type PowerPolicy struct {
 	RunOnBattery       bool `json:"runOnBattery"`
 	RunInLowPowerMode  bool `json:"runInLowPowerMode"`
 	DeferUntilCharging bool `json:"deferUntilCharging"`
 }
 
+// Background 控制背景排程總開關、啟動時是否隱藏視窗，以及是否保留狀態列圖示。
 type Background struct {
 	Enabled         bool `json:"enabled"`
 	StartHidden     bool `json:"startHidden"`
 	KeepMenuBarIcon bool `json:"keepMenuBarIcon"`
 }
 
+// LoginSettings 控制是否於 macOS 登入時自動啟動 App。
 type LoginSettings struct {
 	LaunchAtLogin bool `json:"launchAtLogin"`
 }
 
+// ActionSettings 控制檔案操作行為，例如永久刪除前是否需要再次確認。
 type ActionSettings struct {
 	ConfirmPermanentDelete bool `json:"confirmPermanentDelete"`
 }
 
+// SettingsStore 負責讀寫 settings.json；Migrate 用於把舊 schema 版本遷移到目前版本。
 type SettingsStore struct {
 	Path    string
 	Migrate func(settings *Settings) error
@@ -106,6 +114,7 @@ func defaultSettings() Settings {
 	}
 }
 
+// Load 讀取並正規化設定；檔案不存在時回傳預設值，版本過舊時透過 Migrate 遷移。
 func (s SettingsStore) Load() (Settings, error) {
 	if s.Path == "" {
 		return Settings{}, errors.New("settings path 不可為空")
@@ -129,6 +138,7 @@ func (s SettingsStore) Load() (Settings, error) {
 	return settings, nil
 }
 
+// Save 正規化後以原子寫入（暫存檔 + rename）儲存設定，並將權限設為 0600。
 func (s SettingsStore) Save(settings Settings) error {
 	if s.Path == "" {
 		return errors.New("settings path 不可為空")

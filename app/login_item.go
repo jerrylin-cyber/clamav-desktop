@@ -11,6 +11,7 @@ import (
 
 const loginAgentLabel = "com.lazyjerry.clamavdesktop.agent"
 
+// LoginItemStatus 描述登入啟動項目的目前狀態；Method 標示採用的機制（SMAppService 或 LaunchAgent）。
 type LoginItemStatus struct {
 	Enabled bool   `json:"enabled"`
 	Path    string `json:"path"`
@@ -18,6 +19,7 @@ type LoginItemStatus struct {
 	Method  string `json:"method"`
 }
 
+// LoginItemService 管理「登入時啟動」設定，優先使用 SMAppService，失敗時退回 per-user LaunchAgent。
 type LoginItemService struct {
 	HomeDir    string
 	BundlePath string
@@ -27,6 +29,7 @@ func newLoginItemService(homeDir string) *LoginItemService {
 	return &LoginItemService{HomeDir: homeDir}
 }
 
+// Apply 依設定登記或取消登入啟動項目：開啟時 Register、關閉時 Unregister。
 func (s *LoginItemService) Apply(settings Settings) error {
 	if settings.Login.LaunchAtLogin {
 		return s.Register(settings.Background.StartHidden)
@@ -34,6 +37,7 @@ func (s *LoginItemService) Apply(settings Settings) error {
 	return s.Unregister()
 }
 
+// Register 登記登入啟動項目；優先用 SMAppService，成功後清掉舊的 LaunchAgent，否則退回寫入 LaunchAgent plist。
 func (s *LoginItemService) Register(startHidden bool) error {
 	if s.shouldUseSMAppService() {
 		if err := registerSMAppService(); err == nil {
@@ -44,6 +48,7 @@ func (s *LoginItemService) Register(startHidden bool) error {
 	return s.registerLaunchAgent(startHidden)
 }
 
+// Unregister 取消登入啟動項目，同時清除 SMAppService 登記與 LaunchAgent plist。
 func (s *LoginItemService) Unregister() error {
 	if s.shouldUseSMAppService() {
 		// 忽略 SMAppService 的錯誤：app 可能從未透過 SMAppService 登記，
@@ -53,6 +58,7 @@ func (s *LoginItemService) Unregister() error {
 	return s.unregisterLaunchAgent()
 }
 
+// Status 回傳目前登入啟動狀態，優先回報 SMAppService，否則檢查 LaunchAgent plist 是否存在。
 func (s *LoginItemService) Status() LoginItemStatus {
 	if s.shouldUseSMAppService() {
 		status := smAppServiceStatus()

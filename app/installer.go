@@ -23,6 +23,7 @@ const (
 	systemLogBase              = "/Library/Logs/ClamAVDesktop"
 )
 
+// SharedRuntimeLayout 集中定義共用 ClamAV 執行環境的所有路徑（執行檔、設定、資料庫、socket、log 與 launchd plist）。
 type SharedRuntimeLayout struct {
 	BasePath               string
 	RuntimePath            string
@@ -46,6 +47,7 @@ type SharedRuntimeLayout struct {
 	ClamdLaunchdErrLog     string
 }
 
+// InstallManifest 記錄一次安裝的內容（模式、版本、已安裝路徑與 launchd labels），供日後查詢與移除使用。
 type InstallManifest struct {
 	Mode                  string   `json:"mode"`
 	RuntimeVersion        string   `json:"runtimeVersion"`
@@ -56,29 +58,34 @@ type InstallManifest struct {
 	InstalledByAppVersion string   `json:"installedByAppVersion"`
 }
 
+// InstallDirectory 描述安裝計畫中要建立的單一目錄與其權限模式。
 type InstallDirectory struct {
 	Path string
 	Mode string
 }
 
+// InstallFile 描述安裝計畫中要寫入的單一檔案、內容與權限模式。
 type InstallFile struct {
 	Path    string
 	Content string
 	Mode    string
 }
 
+// SharedRuntimeInstallPlan 為共用執行環境的完整安裝計畫：要建立的目錄、要寫入的檔案與對應 manifest。
 type SharedRuntimeInstallPlan struct {
 	Directories []InstallDirectory
 	Files       []InstallFile
 	Manifest    InstallManifest
 }
 
+// SharedRuntimeInstaller 依指定的 Layout 產生共用執行環境的安裝計畫。
 type SharedRuntimeInstaller struct {
 	Layout SharedRuntimeLayout
 }
 
 type launchctlRunner func(ctx context.Context, args ...string) ([]byte, error)
 
+// LaunchDaemonManager 透過 launchctl 載入、卸載與查詢 LaunchDaemon 狀態。
 type LaunchDaemonManager struct {
 	Domain string
 	run    launchctlRunner
@@ -114,6 +121,7 @@ func sharedRuntimeLayout(base string) SharedRuntimeLayout {
 	return layout
 }
 
+// BuildInstallPlan 依執行環境與 App 版本，組出要建立的目錄、要寫入的設定/plist 檔與 manifest。
 func (i SharedRuntimeInstaller) BuildInstallPlan(runtimeVersion string, appVersion string) (SharedRuntimeInstallPlan, error) {
 	layout := i.Layout
 	if layout.BasePath == "" {
@@ -488,16 +496,19 @@ func xmlEscape(value string) string {
 	return value
 }
 
+// Load 以 launchctl bootstrap 將指定 plist 載入目前 domain。
 func (m LaunchDaemonManager) Load(ctx context.Context, plistPath string) error {
 	_, err := m.runLaunchctl(ctx, "bootstrap", m.domain(), plistPath)
 	return err
 }
 
+// Unload 以 launchctl bootout 將指定 label 的服務卸載。
 func (m LaunchDaemonManager) Unload(ctx context.Context, label string) error {
 	_, err := m.runLaunchctl(ctx, "bootout", launchdTarget(m.domain(), label))
 	return err
 }
 
+// Status 以 launchctl print 查詢指定 label 的服務狀態，回傳原始輸出。
 func (m LaunchDaemonManager) Status(ctx context.Context, label string) (string, error) {
 	out, err := m.runLaunchctl(ctx, "print", launchdTarget(m.domain(), label))
 	return string(out), err

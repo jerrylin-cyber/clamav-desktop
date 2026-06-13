@@ -15,8 +15,10 @@ import (
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const appVersion = "1.0.0"
+const appVersion = "1.1.3"
 
+// App 是 Wails 應用的主結構，統籌各服務（設定、掃描、病毒碼更新、隔離、登入項、排程等），
+// 並對外暴露給前端呼叫的 binding 方法。
 type App struct {
 	ctx                context.Context
 	settingsStore      SettingsStore
@@ -48,6 +50,7 @@ type App struct {
 	scheduledWorkMu          sync.Mutex
 }
 
+// NewApp 建立 App 實例，並初始化預設的設定儲存位置。
 func NewApp() *App {
 	return &App{settingsStore: defaultSettingsStore()}
 }
@@ -149,6 +152,7 @@ func (a *App) shutdown(ctx context.Context) {
 	a.stopBackgroundWorker()
 }
 
+// RuntimeProfile 描述目前採用的 ClamAV 執行環境：各執行檔/設定/socket 路徑、來源與警告。
 type RuntimeProfile struct {
 	Mode          string   `json:"mode"`
 	ClamScanPath  string   `json:"clamScanPath"`
@@ -161,6 +165,7 @@ type RuntimeProfile struct {
 	Warnings      []string `json:"warnings"`
 }
 
+// AppStatus 彙整前端儀表板所需的整體狀態：執行環境、健康檢查、病毒碼狀態與頁面清單。
 type AppStatus struct {
 	Runtime  RuntimeProfile `json:"runtime"`
 	Health   RuntimeHealth  `json:"health"`
@@ -168,6 +173,7 @@ type AppStatus struct {
 	Pages    []string       `json:"pages"`
 }
 
+// AboutInfo 提供「關於」頁所需資訊：版本、機器、執行環境、各項路徑、可複製指令與功能清單。
 type AboutInfo struct {
 	Version     string          `json:"version"`
 	Computer    ComputerInfo    `json:"computer"`
@@ -180,6 +186,7 @@ type AboutInfo struct {
 	Features    []FeatureStatus `json:"features"`
 }
 
+// ComputerInfo 描述執行本 App 的機器資訊（主機名稱、家目錄、作業系統與架構）。
 type ComputerInfo struct {
 	Hostname string `json:"hostname"`
 	HomeDir  string `json:"homeDir"`
@@ -187,6 +194,7 @@ type ComputerInfo struct {
 	Arch     string `json:"arch"`
 }
 
+// AboutPaths 集中列出「關於」頁要顯示的各項檔案與目錄路徑。
 type AboutPaths struct {
 	ClamScan        string `json:"clamScan"`
 	Freshclam       string `json:"freshclam"`
@@ -200,17 +208,20 @@ type AboutPaths struct {
 	Logs            string `json:"logs"`
 }
 
+// CommandInfo 為「關於」頁提供的一條可複製的等效 CLI 指令與其標籤。
 type CommandInfo struct {
 	Label   string `json:"label"`
 	Command string `json:"command"`
 }
 
+// FeatureStatus 描述功能清單中的單一功能：名稱、狀態與說明。
 type FeatureStatus struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Note   string `json:"note"`
 }
 
+// GetAppStatus 回傳前端儀表板所需的整體狀態（執行環境、健康檢查、病毒碼狀態與頁面清單）。
 func (a *App) GetAppStatus() AppStatus {
 	profile := runtimeProfile()
 	database, err := newFreshclamService(profile).LoadStatus()
@@ -235,10 +246,12 @@ func (a *App) GetAppStatus() AppStatus {
 	}
 }
 
+// GetRuntimeSetupStatus 回傳安裝/啟動引導的目前狀態，供前端決定是否顯示引導視窗。
 func (a *App) GetRuntimeSetupStatus() RuntimeSetupStatus {
 	return runtimeSetupStatus()
 }
 
+// GetAboutInfo 組出「關於」頁所需的版本、機器、路徑、等效指令與功能清單。
 func (a *App) GetAboutInfo() AboutInfo {
 	homeDir, _ := os.UserHomeDir()
 	hostname, _ := os.Hostname()
@@ -294,6 +307,7 @@ func (a *App) GetAboutInfo() AboutInfo {
 	}
 }
 
+// GetSettings 讀取目前的使用者設定供前端顯示。
 func (a *App) GetSettings() (Settings, error) {
 	return a.settingsStore.Load()
 }
@@ -351,6 +365,7 @@ func scheduledClamScanPlist(clamScanPath string, databasePath string, scanPath s
 	}, "\n")
 }
 
+// SaveSettings 儲存設定並套用相關副作用（登入啟動項、喚醒背景排程 worker），回傳正規化後的設定。
 func (a *App) SaveSettings(settings Settings) (Settings, error) {
 	current, err := a.settingsStore.Load()
 	if err != nil {
@@ -386,26 +401,33 @@ func loginItemSettingsChanged(current Settings, next Settings) bool {
 	return next.Login.LaunchAtLogin && current.Background.StartHidden != next.Background.StartHidden
 }
 
+// GetLoginItemStatus 回傳目前「登入時啟動」的狀態。
 func (a *App) GetLoginItemStatus() LoginItemStatus {
 	return a.loginItems().Status()
 }
 
+// OpenFullDiskAccessSettings 開啟「系統設定 → 完整磁碟取用權限」面板。
 func (a *App) OpenFullDiskAccessSettings() error {
 	return a.systemSettingsService().OpenFullDiskAccess(a.context())
 }
 
+// OpenNotificationSettings 開啟 macOS「系統設定 → 通知」頁面，供使用者手動調整本 App 的通知權限。
+// 作為 Wails binding 供前端呼叫；前端目前暫時隱藏通知 UI（未簽章 build 下通知無法穩定運作），但保留此 binding 以便日後恢復。
 func (a *App) OpenNotificationSettings() error {
 	return a.systemSettingsService().OpenNotifications(a.context())
 }
 
+// GetSystemPermissionStatus 回傳 App 關注的 macOS 權限檢測結果。
 func (a *App) GetSystemPermissionStatus() SystemPermissionStatus {
 	return a.systemSettingsService().PermissionStatus()
 }
 
+// GetDatabaseStatus 回傳目前病毒碼資料庫的狀態。
 func (a *App) GetDatabaseStatus() (DatabaseStatus, error) {
 	return a.freshclam().LoadStatus()
 }
 
+// UpdateDatabase 立即執行病毒碼更新並回傳更新後狀態；過程與結果寫入 App log。
 func (a *App) UpdateDatabase() (DatabaseStatus, error) {
 	status, err := a.freshclam().UpdateDatabase(a.context(), func(event FreshclamEvent) {
 		if a.ctx != nil {
@@ -420,6 +442,7 @@ func (a *App) UpdateDatabase() (DatabaseStatus, error) {
 	return status, err
 }
 
+// StartScan 對指定路徑啟動一次掃描工作，過程以 Wails 事件推播進度，回傳新建立的工作。
 func (a *App) StartScan(paths []string, options ScanOptions) (ScanJob, error) {
 	job, _, err := a.scanJobs().RunScan(a.context(), paths, options, func(event ScanProgressEvent) {
 		if a.ctx != nil {
@@ -434,6 +457,7 @@ func (a *App) StartScan(paths []string, options ScanOptions) (ScanJob, error) {
 	return job, err
 }
 
+// CancelScanJob 取消執行中的掃描工作，回傳是否確實取消了對應工作。
 func (a *App) CancelScanJob(id string) bool {
 	canceled := a.scanJobs().CancelScanJob(id)
 	if canceled {
@@ -442,35 +466,43 @@ func (a *App) CancelScanJob(id string) bool {
 	return canceled
 }
 
+// ListScanJobs 回傳所有已保存的掃描工作紀錄。
 func (a *App) ListScanJobs() ([]ScanJob, error) {
 	return a.scanJobs().ListScanJobs()
 }
 
+// GetScanJob 依 ID 讀取單一掃描工作。
 func (a *App) GetScanJob(id string) (ScanJob, error) {
 	return a.scanJobs().GetScanJob(id)
 }
 
+// LoadScanResults 依工作 ID 讀取該次掃描的逐檔結果。
 func (a *App) LoadScanResults(id string) ([]ScanResult, error) {
 	return a.scanJobs().LoadResults(id)
 }
 
+// GetDownloadsPath 回傳目前使用者的下載資料夾路徑，供前端作為掃描預設目標。
 func (a *App) GetDownloadsPath() string {
 	return downloadsPath()
 }
 
+// ScanPathPreset 為前端可一鍵選用的常見掃描路徑預設項目。
 type ScanPathPreset struct {
 	Label string `json:"label"`
 	Path  string `json:"path"`
 }
 
+// GetCommonScanPaths 回傳常見掃描路徑（如下載、桌面）的預設清單。
 func (a *App) GetCommonScanPaths() []ScanPathPreset {
 	return commonScanPaths()
 }
 
+// OpenScanResultLocation 在 Finder 中顯示掃描結果檔案的位置。
 func (a *App) OpenScanResultLocation(result ScanResult) error {
 	return a.fileActionService().OpenScanResultLocation(a.context(), result)
 }
 
+// QuarantineScanResult 將感染的掃描結果隔離，並記錄到 App log。
 func (a *App) QuarantineScanResult(result ScanResult) (QuarantineRecord, error) {
 	record, err := a.fileActionService().Quarantine(result)
 	if err != nil {
@@ -481,6 +513,7 @@ func (a *App) QuarantineScanResult(result ScanResult) (QuarantineRecord, error) 
 	return record, err
 }
 
+// RestoreQuarantineRecord 將隔離紀錄還原回原始位置，並記錄到 App log。
 func (a *App) RestoreQuarantineRecord(id string) (QuarantineRecord, error) {
 	record, err := a.fileActionService().Restore(id)
 	if err != nil {
@@ -491,14 +524,17 @@ func (a *App) RestoreQuarantineRecord(id string) (QuarantineRecord, error) {
 	return record, err
 }
 
+// OpenQuarantineLocation 在 Finder 中顯示隔離檔（或已還原檔）的位置。
 func (a *App) OpenQuarantineLocation(record QuarantineRecord) error {
 	return a.fileActionService().OpenQuarantineLocation(a.context(), record)
 }
 
+// ListQuarantineRecords 回傳所有隔離紀錄，最新偵測者排在前。
 func (a *App) ListQuarantineRecords() ([]QuarantineRecord, error) {
 	return a.fileActionService().ListQuarantineRecords()
 }
 
+// MoveQuarantineRecordToTrash 將隔離檔移到垃圾桶並更新紀錄狀態。
 func (a *App) MoveQuarantineRecordToTrash(id string) (QuarantineRecord, error) {
 	record, err := a.fileActionService().MoveQuarantineToTrash(a.context(), id)
 	if err != nil {
@@ -509,6 +545,7 @@ func (a *App) MoveQuarantineRecordToTrash(id string) (QuarantineRecord, error) {
 	return record, err
 }
 
+// PermanentlyDeleteQuarantineRecord 永久刪除隔離檔並更新紀錄狀態；此操作不可復原，呼叫前須取得使用者確認。
 func (a *App) PermanentlyDeleteQuarantineRecord(id string) (QuarantineRecord, error) {
 	record, err := a.fileActionService().PermanentlyDeleteQuarantine(id)
 	if err != nil {
@@ -519,6 +556,7 @@ func (a *App) PermanentlyDeleteQuarantineRecord(id string) (QuarantineRecord, er
 	return record, err
 }
 
+// MoveScanResultToTrash 將掃描結果檔案移到垃圾桶（可從垃圾桶復原）。
 func (a *App) MoveScanResultToTrash(result ScanResult) error {
 	err := a.fileActionService().MoveToTrash(a.context(), result.Path)
 	if err != nil {
@@ -529,6 +567,7 @@ func (a *App) MoveScanResultToTrash(result ScanResult) error {
 	return err
 }
 
+// PermanentlyDeleteScanResult 永久刪除掃描結果檔案；此操作不可復原，呼叫前須取得使用者確認。
 func (a *App) PermanentlyDeleteScanResult(result ScanResult) error {
 	err := a.fileActionService().PermanentlyDelete(result.Path)
 	if err != nil {
