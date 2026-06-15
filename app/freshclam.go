@@ -215,7 +215,7 @@ func (s *FreshclamService) saveStatus(status DatabaseStatus) error {
 }
 
 func (s *FreshclamService) ensureFreshclamConfig() (string, error) {
-	if path := s.configuredFreshclamConfigPath(); fileExists(path) {
+	if path := s.configuredFreshclamConfigPath(); !s.shouldUseGeneratedConfig() && fileExists(path) {
 		return path, nil
 	}
 
@@ -239,7 +239,17 @@ func (s *FreshclamService) ensureFreshclamConfig() (string, error) {
 }
 
 func (s *FreshclamService) shouldUseGeneratedConfig() bool {
+	if s.Profile.Mode == "external" {
+		return true
+	}
 	return !fileExists(s.configuredFreshclamConfigPath())
+}
+
+func (s *FreshclamService) activeFreshclamConfigPath() string {
+	if s.shouldUseGeneratedConfig() {
+		return s.generatedFreshclamConfigPath()
+	}
+	return s.configuredFreshclamConfigPath()
 }
 
 func (s *FreshclamService) configuredFreshclamConfigPath() string {

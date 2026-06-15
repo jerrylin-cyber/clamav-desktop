@@ -259,10 +259,7 @@ func (a *App) GetAboutInfo() AboutInfo {
 	freshclam := newFreshclamService(profile)
 	database, _ := freshclam.LoadStatus()
 	paths := userDataPathsForHome(homeDir)
-	freshclamConfig := freshclam.configuredFreshclamConfigPath()
-	if !fileExists(freshclamConfig) {
-		freshclamConfig = freshclam.generatedFreshclamConfigPath()
-	}
+	freshclamConfig := freshclam.activeFreshclamConfigPath()
 
 	return AboutInfo{
 		Version: appVersion,

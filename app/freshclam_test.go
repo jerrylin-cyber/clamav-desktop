@@ -115,6 +115,56 @@ func TestFreshclamServiceGeneratesConfigWhenRuntimeConfigIsMissing(t *testing.T)
 	}
 }
 
+func TestFreshclamServiceUsesGeneratedConfigForExternalRuntime(t *testing.T) {
+	dir := t.TempDir()
+	runtimeConfigDir := filepath.Join(dir, "RuntimeConfig")
+	generatedConfig := filepath.Join(dir, "Config/freshclam.conf")
+	generatedDatabase := filepath.Join(dir, "Database")
+	generatedLog := filepath.Join(dir, "Logs/freshclam.log")
+
+	if err := os.MkdirAll(runtimeConfigDir, 0700); err != nil {
+		t.Fatalf("create runtime config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeConfigDir, "freshclam.conf"), []byte("DatabaseMirror database.clamav.net\n"), 0600); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
+
+	service := &FreshclamService{
+		Profile: RuntimeProfile{
+			Mode:          "external",
+			FreshclamPath: "/Runtime/bin/freshclam",
+			ConfigPath:    runtimeConfigDir,
+			DatabasePath:  "/ExternalDatabase",
+		},
+		StatusPath:            filepath.Join(dir, "status.json"),
+		GeneratedConfigPath:   generatedConfig,
+		GeneratedDatabasePath: generatedDatabase,
+		GeneratedLogPath:      generatedLog,
+		run: func(_ context.Context, _ string, args []string, stdout io.Writer, _ io.Writer) error {
+			if len(args) != 2 || args[1] != "--config-file="+generatedConfig {
+				t.Fatalf("unexpected args: %#v", args)
+			}
+			_, _ = io.WriteString(stdout, "daily.cvd database is up-to-date (version: 99, sigs: 123)\n")
+			return nil
+		},
+		now: func() time.Time {
+			return time.Date(2026, 6, 12, 10, 30, 0, 0, time.UTC)
+		},
+	}
+
+	if service.activeFreshclamConfigPath() != generatedConfig {
+		t.Fatalf("expected generated config path, got %s", service.activeFreshclamConfigPath())
+	}
+
+	status, err := service.UpdateDatabase(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("update database: %v", err)
+	}
+	if status.Path != generatedDatabase {
+		t.Fatalf("expected generated database path, got %s", status.Path)
+	}
+}
+
 func TestFreshclamServiceClassifiesNetworkError(t *testing.T) {
 	service := testFreshclamService(t, func(_ context.Context, _ string, _ []string, _ io.Writer, stderr io.Writer) error {
 		_, _ = io.WriteString(stderr, "ERROR: Can't download daily.cvd from database.clamav.net\n")
