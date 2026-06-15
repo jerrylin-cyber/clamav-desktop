@@ -66,6 +66,14 @@ export function LoadScanResults(arg1) {
   return window['go']['main']['App']['LoadScanResults'](arg1);
 }
 
+export function LoadScanResultsPage(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['LoadScanResultsPage'](arg1, arg2, arg3, arg4, arg5);
+}
+
+export function MarkScanResultStatus(arg1, arg2, arg3) {
+  return window['go']['main']['App']['MarkScanResultStatus'](arg1, arg2, arg3);
+}
+
 export function MoveQuarantineRecordToTrash(arg1) {
   return window['go']['main']['App']['MoveQuarantineRecordToTrash'](arg1);
 }

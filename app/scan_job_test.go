@@ -142,6 +142,67 @@ func TestScanJobManagerCanCancelRunningScan(t *testing.T) {
 	}
 }
 
+func TestScanJobManagerStreamsResultsToStore(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("payload"), 0644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+	}
+	manager := testScanJobManager(t, func(_ context.Context, _ string) (string, error) {
+		return "stream: OK", nil
+	})
+
+	job, _, err := manager.RunScan(context.Background(), []string{root}, ScanOptions{Recursive: true}, nil)
+	if err != nil {
+		t.Fatalf("run scan: %v", err)
+	}
+
+	page, err := manager.LoadResultsPage(job.ID, "all", "", 0, 25)
+	if err != nil {
+		t.Fatalf("load results page: %v", err)
+	}
+	if page.Total != 3 || page.Counts["clean"] != 3 {
+		t.Fatalf("expected 3 clean results in store, got total=%d counts=%#v", page.Total, page.Counts)
+	}
+}
+
+func TestScanJobManagerMarksInterruptedJobs(t *testing.T) {
+	manager := testScanJobManager(t, nil)
+
+	if err := manager.saveJob(ScanJob{ID: "scan_running", Status: "scanning", StartedAt: manager.timeNow()}); err != nil {
+		t.Fatalf("save running job: %v", err)
+	}
+	if err := manager.saveJob(ScanJob{ID: "scan_queued", Status: "queued", StartedAt: manager.timeNow()}); err != nil {
+		t.Fatalf("save queued job: %v", err)
+	}
+	if err := manager.saveJob(ScanJob{ID: "scan_done", Status: "completed", StartedAt: manager.timeNow()}); err != nil {
+		t.Fatalf("save completed job: %v", err)
+	}
+
+	marked, err := manager.MarkInterruptedJobs()
+	if err != nil {
+		t.Fatalf("mark interrupted: %v", err)
+	}
+	if marked != 2 {
+		t.Fatalf("expected 2 jobs marked interrupted, got %d", marked)
+	}
+
+	for _, id := range []string{"scan_running", "scan_queued"} {
+		job, err := manager.GetScanJob(id)
+		if err != nil {
+			t.Fatalf("get job %s: %v", id, err)
+		}
+		if job.Status != "interrupted" || job.EndedAt == nil {
+			t.Fatalf("expected %s interrupted with EndedAt, got %#v", id, job)
+		}
+	}
+	done, _ := manager.GetScanJob("scan_done")
+	if done.Status != "completed" {
+		t.Fatalf("completed job should be untouched, got %s", done.Status)
+	}
+}
+
 func TestScanJobManagerKeepsUserStoresSeparate(t *testing.T) {
 	homeA := t.TempDir()
 	homeB := t.TempDir()
@@ -259,6 +320,7 @@ func testScanJobManager(t *testing.T, scan scanFileFunc) *ScanJobManager {
 	return &ScanJobManager{
 		JobsPath:    filepath.Join(base, "jobs"),
 		ResultsPath: filepath.Join(base, "results"),
+		results:     newResultsStore(base),
 		scanFile:    scan,
 		newID: func() string {
 			return "scan_test"

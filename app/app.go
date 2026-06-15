@@ -57,6 +57,11 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	// 上次掃描若因 app 關閉而未正常結束，狀態會卡在 queued/scanning；啟動時標記為 interrupted，
+	// 讓前端能顯示「已中斷」並提供重新掃描，已逐批寫入的結果仍保留在結果庫。
+	if marked, err := a.scanJobs().MarkInterruptedJobs(); err == nil && marked > 0 {
+		_ = a.logs().WriteAppLog("info", fmt.Sprintf("已將 %d 筆未完成的掃描標記為中斷", marked))
+	}
 	if settings, err := a.settingsStore.Load(); err == nil {
 		if settings.Background.KeepMenuBarIcon {
 			a.startStatusItem()
@@ -89,6 +94,13 @@ func (a *App) beforeClose(ctx context.Context) bool {
 	if !a.confirmClose(ctx) {
 		return true
 	}
+	// 掃描進行中時不結束 process，改為隱藏到 menu bar 讓掃描在背景繼續，避免中途中斷與結果遺失。
+	if a.scanJobs().HasRunningJobs() {
+		a.startStatusItem()
+		a.showScanningCloseNotice(ctx)
+		a.windowHide(ctx)
+		return true
+	}
 	if settings.Background.KeepMenuBarIcon {
 		a.startStatusItem()
 		a.showBackgroundCloseNotice(ctx)
@@ -111,6 +123,16 @@ func (a *App) confirmClose(ctx context.Context) bool {
 		return true
 	}
 	return dialogSelectionAllowsClose(selected)
+}
+
+func (a *App) showScanningCloseNotice(ctx context.Context) {
+	_, _ = a.runMessageDialog(ctx, wailsruntime.MessageDialogOptions{
+		Type:          wailsruntime.InfoDialog,
+		Title:         "掃描將在背景繼續",
+		Message:       "目前有掃描正在進行，ClamAV Desktop 會保留在 menu bar 讓掃描繼續完成；要完全結束請從 menu bar 選擇「結束」。",
+		Buttons:       []string{"知道了"},
+		DefaultButton: "知道了",
+	})
 }
 
 func (a *App) showBackgroundCloseNotice(ctx context.Context) {
@@ -479,6 +501,24 @@ func (a *App) GetScanJob(id string) (ScanJob, error) {
 // LoadScanResults 依工作 ID 讀取該次掃描的逐檔結果。
 func (a *App) LoadScanResults(id string) ([]ScanResult, error) {
 	return a.scanJobs().LoadResults(id)
+}
+
+// LoadScanResultsPage 依工作 ID 取得一頁結果（後端分頁，避免一次把全部結果傳給前端）。
+// status 可為空字串或 "all" 表示不篩選；query 對路徑與病毒碼名稱做模糊搜尋。
+func (a *App) LoadScanResultsPage(id, status, query string, offset, limit int) (ScanResultsPage, error) {
+	if limit <= 0 {
+		limit = 25
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return a.scanJobs().LoadResultsPage(id, status, query, offset, limit)
+}
+
+// MarkScanResultStatus 在隔離／移到垃圾桶／永久刪除等動作成功後，同步更新結果庫中該筆結果的狀態，
+// 讓後續分頁查詢反映最新狀態。
+func (a *App) MarkScanResultStatus(jobID, path, status string) error {
+	return a.scanJobs().results.UpdateStatus(jobID, path, status)
 }
 
 // GetDownloadsPath 回傳目前使用者的下載資料夾路徑，供前端作為掃描預設目標。
