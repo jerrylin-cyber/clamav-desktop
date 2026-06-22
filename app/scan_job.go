@@ -56,10 +56,14 @@ type ScanResult struct {
 
 type scanFileFunc func(ctx context.Context, path string) (string, error)
 
+// scanResultBatchSize 為掃描中逐批寫入結果庫的批次大小，平衡寫入次數與崩潰時的結果遺失量。
+const scanResultBatchSize = 200
+
 // ScanJobManager 建立、執行、查詢與取消掃描工作，並負責工作與結果的持久化。
 type ScanJobManager struct {
 	JobsPath    string
 	ResultsPath string
+	results     *ResultsStore
 	scanFile    scanFileFunc
 	now         func() time.Time
 	newID       func() string
@@ -73,6 +77,7 @@ func newScanJobManager(homeDir string, client ClamDClient) *ScanJobManager {
 	return &ScanJobManager{
 		JobsPath:    filepath.Join(base, "jobs"),
 		ResultsPath: filepath.Join(base, "results"),
+		results:     newResultsStore(base),
 		scanFile: func(ctx context.Context, path string) (string, error) {
 			reply, err := client.InstreamFile(ctx, path)
 			if errors.Is(err, errStreamMaxLength) {
@@ -133,8 +138,19 @@ func (m *ScanJobManager) RunScan(ctx context.Context, paths []string, options Sc
 		}
 	}
 
+	// 逐批 durable 寫入結果庫：掃描中即時持久化，app 被強制結束時已掃部分不會遺失。
+	pending := append([]ScanResult{}, preResults...)
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		_ = m.results.AppendResults(job.ID, pending)
+		pending = pending[:0]
+	}
+
 	for _, path := range files {
 		if err := ctx.Err(); err != nil {
+			flush()
 			job.Status = "canceled"
 			ended := m.timeNow()
 			job.EndedAt = &ended
@@ -142,7 +158,6 @@ func (m *ScanJobManager) RunScan(ctx context.Context, paths []string, options Sc
 			job.Detections = progress.Detections
 			job.Errors = progress.Errors
 			_ = m.saveJob(job)
-			_ = m.saveResults(job.ID, results)
 			progress.Status = job.Status
 			emitScanProgress(emit, progress)
 			return job, results, err
@@ -153,6 +168,7 @@ func (m *ScanJobManager) RunScan(ctx context.Context, paths []string, options Sc
 
 		reply, scanErr := m.scanner()(ctx, path)
 		if errors.Is(scanErr, context.Canceled) {
+			flush()
 			job.Status = "canceled"
 			ended := m.timeNow()
 			job.EndedAt = &ended
@@ -160,13 +176,16 @@ func (m *ScanJobManager) RunScan(ctx context.Context, paths []string, options Sc
 			job.Detections = progress.Detections
 			job.Errors = progress.Errors
 			_ = m.saveJob(job)
-			_ = m.saveResults(job.ID, results)
 			progress.Status = job.Status
 			emitScanProgress(emit, progress)
 			return job, results, scanErr
 		}
 		result := scanResultFromReply(path, reply, scanErr)
 		results = append(results, result)
+		pending = append(pending, result)
+		if len(pending) >= scanResultBatchSize {
+			flush()
+		}
 		progress.ScannedFiles++
 		if result.Status == "infected" {
 			progress.Detections++
@@ -177,6 +196,7 @@ func (m *ScanJobManager) RunScan(ctx context.Context, paths []string, options Sc
 		emitScanProgress(emit, progress)
 	}
 
+	flush()
 	ended := m.timeNow()
 	job.EndedAt = &ended
 	job.ScannedFiles = progress.ScannedFiles
@@ -188,14 +208,6 @@ func (m *ScanJobManager) RunScan(ctx context.Context, paths []string, options Sc
 		job.Status = "completed"
 	}
 	progress.Status = job.Status
-	if err := m.saveResults(job.ID, results); err != nil {
-		job.Status = "failed"
-		progress.Status = job.Status
-		progress.Errors++
-		_ = m.saveJob(job)
-		emitScanProgress(emit, progress)
-		return job, results, err
-	}
 	if err := m.saveJob(job); err != nil {
 		return job, results, err
 	}
@@ -216,17 +228,14 @@ func (m *ScanJobManager) GetScanJob(id string) (ScanJob, error) {
 	return job, nil
 }
 
-// LoadResults 依工作 ID 讀取該次掃描保存的逐檔結果清單。
+// LoadResults 依工作 ID 讀取該次掃描保存的逐檔結果清單（來源為結果庫，必要時自舊版 JSON 惰性匯入）。
 func (m *ScanJobManager) LoadResults(jobID string) ([]ScanResult, error) {
-	content, err := os.ReadFile(m.resultsPath(jobID))
-	if err != nil {
-		return nil, fmt.Errorf("讀取 scan results 失敗: %w", err)
-	}
-	var results []ScanResult
-	if err := json.Unmarshal(content, &results); err != nil {
-		return nil, fmt.Errorf("解析 scan results 失敗: %w", err)
-	}
-	return results, nil
+	return m.results.LoadAll(jobID)
+}
+
+// LoadResultsPage 依工作 ID 取得一頁結果，套用狀態篩選與路徑/簽章搜尋，並回傳篩選後總數與各狀態筆數。
+func (m *ScanJobManager) LoadResultsPage(jobID, status, query string, offset, limit int) (ScanResultsPage, error) {
+	return m.results.QueryPage(jobID, status, query, offset, limit)
 }
 
 // ListScanJobs returns all scan jobs for the current user, most recently
@@ -256,6 +265,38 @@ func (m *ScanJobManager) ListScanJobs() ([]ScanJob, error) {
 		return jobs[i].StartedAt.After(jobs[j].StartedAt)
 	})
 	return jobs, nil
+}
+
+// HasRunningJobs 回報目前是否有執行中的掃描工作（供關閉視窗時決定是否保留背景 process）。
+func (m *ScanJobManager) HasRunningJobs() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.running) > 0
+}
+
+// MarkInterruptedJobs 在 app 啟動時，將仍停留在 queued/scanning 但已無對應執行中程序的工作標記為 interrupted，
+// 避免狀態永久卡住，並讓前端能提供「重新掃描」。回傳被標記的工作數。
+func (m *ScanJobManager) MarkInterruptedJobs() (int, error) {
+	jobs, err := m.ListScanJobs()
+	if err != nil {
+		return 0, err
+	}
+	marked := 0
+	for _, job := range jobs {
+		if job.Status != "queued" && job.Status != "scanning" {
+			continue
+		}
+		job.Status = "interrupted"
+		if job.EndedAt == nil {
+			ended := m.timeNow()
+			job.EndedAt = &ended
+		}
+		if err := m.saveJob(job); err != nil {
+			return marked, err
+		}
+		marked++
+	}
+	return marked, nil
 }
 
 // CancelScanJob 取消執行中的掃描工作，回傳是否確實有對應的執行中工作被取消。
@@ -308,16 +349,8 @@ func (m *ScanJobManager) saveJob(job ScanJob) error {
 	return writeJSONFile(m.jobPath(job.ID), job)
 }
 
-func (m *ScanJobManager) saveResults(jobID string, results []ScanResult) error {
-	return writeJSONFile(m.resultsPath(jobID), results)
-}
-
 func (m *ScanJobManager) jobPath(id string) string {
 	return filepath.Join(m.JobsPath, id+".json")
-}
-
-func (m *ScanJobManager) resultsPath(id string) string {
-	return filepath.Join(m.ResultsPath, id+".json")
 }
 
 func (m *ScanJobManager) scanner() scanFileFunc {

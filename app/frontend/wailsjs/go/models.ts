@@ -627,6 +627,40 @@ export namespace main {
 	        this.error = source["error"];
 	    }
 	}
+	export class ScanResultsPage {
+	    items: ScanResult[];
+	    total: number;
+	    counts: {[key: string]: number};
+
+	    static createFrom(source: any = {}) {
+	        return new ScanResultsPage(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.items = this.convertValues(source["items"], ScanResult);
+	        this.total = source["total"];
+	        this.counts = source["counts"];
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.slice.constructor === Array) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ScanSchedule {
 	    enabled: boolean;
 	    frequency: string;

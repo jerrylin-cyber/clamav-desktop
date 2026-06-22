@@ -36,7 +36,17 @@ type userDataPaths struct {
 // 作為 Wails binding 供前端呼叫；移除前會驗證目標路徑確實位於 App 的資料目錄內，避免誤刪其他位置。
 func (a *App) RemoveUserData(options UserDataRemovalOptions) (UserDataRemovalResult, error) {
 	homeDir, _ := os.UserHomeDir()
-	return removeUserData(userDataPathsForHome(homeDir), options)
+	result, err := removeUserData(userDataPathsForHome(homeDir), options)
+	if err != nil {
+		return result, err
+	}
+	// 結果改存於 SQLite 結果庫，清除掃描結果時一併清空，否則舊資料仍會在分頁查詢中出現。
+	if options.RemoveScanResults {
+		if dbErr := a.scanJobs().results.DeleteAll(); dbErr != nil {
+			return result, dbErr
+		}
+	}
+	return result, nil
 }
 
 func userDataPathsForHome(homeDir string) userDataPaths {

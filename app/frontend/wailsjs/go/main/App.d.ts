@@ -34,6 +34,10 @@ export function ListScanJobs():Promise<Array<main.ScanJob>>;
 
 export function LoadScanResults(arg1:string):Promise<Array<main.ScanResult>>;
 
+export function LoadScanResultsPage(arg1:string,arg2:string,arg3:string,arg4:number,arg5:number):Promise<main.ScanResultsPage>;
+
+export function MarkScanResultStatus(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function MoveQuarantineRecordToTrash(arg1:string):Promise<main.QuarantineRecord>;
 
 export function MoveScanResultToTrash(arg1:main.ScanResult):Promise<void>;

@@ -14,7 +14,8 @@ import {
     ListAppLogEntries,
     ListQuarantineRecords,
     ListScanJobs,
-    LoadScanResults,
+    LoadScanResultsPage,
+    MarkScanResultStatus,
     MoveQuarantineRecordToTrash,
     MoveScanResultToTrash,
     OpenFullDiskAccessSettings,
@@ -115,7 +116,6 @@ function App() {
     const [scanRecursive, setScanRecursive] = useState(true);
     const [scanJob, setScanJob] = useState<main.ScanJob | null>(null);
     const [scanProgress, setScanProgress] = useState<ScanProgressEventPayload | null>(null);
-    const [scanResults, setScanResults] = useState<main.ScanResult[]>([]);
     const [scanMessage, setScanMessage] = useState("");
     const [freshclamEvents, setFreshclamEvents] = useState<FreshclamEventPayload[]>([]);
     const [quarantineRecords, setQuarantineRecords] = useState<main.QuarantineRecord[]>([]);
@@ -125,11 +125,14 @@ function App() {
     const [clamdLogLines, setClamdLogLines] = useState<string[]>([]);
     const [resultsJobs, setResultsJobs] = useState<main.ScanJob[]>([]);
     const [resultsJobId, setResultsJobId] = useState("");
-    const [resultsItems, setResultsItems] = useState<main.ScanResult[]>([]);
+    const [resultsPageItems, setResultsPageItems] = useState<main.ScanResult[]>([]);
+    const [resultsTotal, setResultsTotal] = useState(0);
+    const [resultsCounts, setResultsCounts] = useState<Record<string, number>>({});
     const [resultsFilter, setResultsFilter] = useState("all");
     const [toasts, setToasts] = useState<ToastItem[]>([]);
     const [dialog, setDialog] = useState<DialogState | null>(null);
     const [resultsSearch, setResultsSearch] = useState("");
+    const [resultsSearchQuery, setResultsSearchQuery] = useState("");
     const [resultsPage, setResultsPage] = useState(1);
 
     useEffect(() => {
@@ -193,9 +196,23 @@ function App() {
         }
     }, [activePage]);
 
+    // 搜尋輸入 debounce，避免每個按鍵都打一次後端分頁查詢。
+    useEffect(() => {
+        const timer = setTimeout(() => setResultsSearchQuery(resultsSearch.trim()), 300);
+        return () => clearTimeout(timer);
+    }, [resultsSearch]);
+
     useEffect(() => {
         setResultsPage(1);
-    }, [resultsFilter, resultsSearch, resultsJobId]);
+    }, [resultsFilter, resultsSearchQuery, resultsJobId]);
+
+    // 結果頁採後端分頁：條件（工作／篩選／頁碼／搜尋）變動時，只向後端取當頁 25 筆。
+    useEffect(() => {
+        if (activePage !== "results") {
+            return;
+        }
+        loadResultsPage(resultsJobId, resultsFilter, resultsSearchQuery, resultsPage);
+    }, [activePage, resultsJobId, resultsFilter, resultsSearchQuery, resultsPage]);
 
     function dismissToast(id: number) {
         setToasts((current) => current.filter((toast) => toast.id !== id));
@@ -506,7 +523,6 @@ function App() {
 
         setScanMessage("掃描中");
         setScanProgress(null);
-        setScanResults([]);
         const pendingId = pushToast("pending", "掃描中", `共 ${paths.length} 個路徑`);
         StartScan(paths, options)
             .then((job) => {
@@ -518,9 +534,38 @@ function App() {
                     `掃描${formatScanStatus(job.status)}`,
                     `掃描 ${job.scannedFiles} 筆，偵測 ${job.detections} 筆，錯誤 ${job.errors} 筆`
                 );
-                return LoadScanResults(job.id);
+                // 結果改由「結果」頁以後端分頁瀏覽，掃描完成後不再把整批結果載入畫面。
+                setResultsJobId(job.id);
             })
-            .then(setScanResults)
+            .catch((error) => {
+                const message = error instanceof Error ? error.message : "掃描失敗";
+                setScanMessage(message);
+                dismissToast(pendingId);
+                pushToast("error", "掃描失敗", message);
+            });
+    }
+
+    // 以指定工作的路徑與選項重新啟動掃描（供「已中斷」工作的「重新掃描」使用）。
+    function rescanJob(job: main.ScanJob) {
+        setScanPathsText(job.paths.join("\n"));
+        setScanRecursive(job.options?.recursive ?? true);
+        setActivePage("scan");
+        const options = {recursive: job.options?.recursive ?? true, allMatch: false} as main.ScanOptions;
+        setScanMessage("掃描中");
+        setScanProgress(null);
+        const pendingId = pushToast("pending", "重新掃描中", `共 ${job.paths.length} 個路徑`);
+        StartScan(job.paths, options)
+            .then((started) => {
+                setScanJob(started);
+                setScanMessage(formatScanStatus(started.status));
+                dismissToast(pendingId);
+                pushToast(
+                    started.status === "failed" ? "error" : "success",
+                    `掃描${formatScanStatus(started.status)}`,
+                    `掃描 ${started.scannedFiles} 筆，偵測 ${started.detections} 筆，錯誤 ${started.errors} 筆`
+                );
+                setResultsJobId(started.id);
+            })
             .catch((error) => {
                 const message = error instanceof Error ? error.message : "掃描失敗";
                 setScanMessage(message);
@@ -539,25 +584,6 @@ function App() {
         });
     }
 
-    function openScanResult(result: main.ScanResult) {
-        OpenScanResultLocation(result).catch((error) => {
-            setScanMessage(error instanceof Error ? error.message : "無法開啟位置");
-        });
-    }
-
-    function quarantineResult(result: main.ScanResult) {
-        QuarantineScanResult(result)
-            .then(() => {
-                setScanMessage("已隔離檔案");
-                setScanResults((results) =>
-                    results.map((item) => (item.path === result.path ? {...item, status: "quarantined"} : item))
-                );
-            })
-            .catch((error) => {
-                setScanMessage(error instanceof Error ? error.message : "隔離失敗");
-            });
-    }
-
     function requestPermanentDelete(target: string, action: () => void) {
         if (settings && !settings.actions.confirmPermanentDelete) {
             action();
@@ -569,37 +595,6 @@ function App() {
             action,
             {danger: true, confirmLabel: "永久刪除"}
         );
-    }
-
-    function moveResultToTrash(result: main.ScanResult) {
-        MoveScanResultToTrash(result)
-            .then(() => {
-                setScanMessage("已移到垃圾桶");
-                setScanResults((results) =>
-                    results.map((item) => (item.path === result.path ? {...item, status: "trashed"} : item))
-                );
-            })
-            .catch((error) => {
-                setScanMessage(error instanceof Error ? error.message : "移到垃圾桶失敗");
-            });
-    }
-
-    function permanentlyDeleteResult(result: main.ScanResult) {
-        requestPermanentDelete(result.path, () => {
-            PermanentlyDeleteScanResult(result)
-                .then(() => {
-                    setScanMessage("已永久刪除");
-                    pushToast("success", "已永久刪除", result.path);
-                    setScanResults((results) =>
-                        results.map((item) => (item.path === result.path ? {...item, status: "deleted"} : item))
-                    );
-                })
-                .catch((error) => {
-                    const message = error instanceof Error ? error.message : "永久刪除失敗";
-                    setScanMessage(message);
-                    pushToast("error", "永久刪除失敗", message);
-                });
-        });
     }
 
     function loadQuarantineRecords() {
@@ -679,35 +674,49 @@ function App() {
             });
     }
 
+    // 只載入掃描工作中繼資料（量小）；逐檔結果改由結果頁的後端分頁取得，避免啟動時把整批結果載入記憶體造成白畫面。
     function loadResultsJobs() {
         ListScanJobs()
             .then((jobs) => {
                 setResultsJobs(jobs);
                 if (jobs.length === 0) {
                     setResultsJobId("");
-                    setResultsItems([]);
+                    setResultsPageItems([]);
+                    setResultsTotal(0);
+                    setResultsCounts({});
                     return;
                 }
-                const jobId = jobs.some((job) => job.id === resultsJobId) ? resultsJobId : jobs[0].id;
-                setResultsJobId(jobId);
-                loadResultsItems(jobId);
+                setResultsJobId((prev) => (jobs.some((job) => job.id === prev) ? prev : jobs[0].id));
             })
             .catch((error) => {
                 toastError("讀取掃描紀錄失敗", error);
             });
     }
 
-    function loadResultsItems(jobId: string) {
-        LoadScanResults(jobId)
-            .then(setResultsItems)
+    function loadResultsPage(jobId: string, filter: string, query: string, page: number) {
+        if (!jobId) {
+            setResultsPageItems([]);
+            setResultsTotal(0);
+            setResultsCounts({});
+            return;
+        }
+        LoadScanResultsPage(jobId, filter, query, (page - 1) * RESULTS_PAGE_SIZE, RESULTS_PAGE_SIZE)
+            .then((result) => {
+                setResultsPageItems(result.items ?? []);
+                setResultsTotal(result.total ?? 0);
+                setResultsCounts((result.counts ?? {}) as Record<string, number>);
+            })
             .catch((error) => {
                 toastError("讀取掃描結果失敗", error);
             });
     }
 
+    function reloadResultsPage() {
+        loadResultsPage(resultsJobId, resultsFilter, resultsSearchQuery, resultsPage);
+    }
+
     function selectResultsJob(jobId: string) {
         setResultsJobId(jobId);
-        loadResultsItems(jobId);
     }
 
     function openResultsItem(result: main.ScanResult) {
@@ -716,13 +725,18 @@ function App() {
         });
     }
 
+    // 動作成功後同步結果庫狀態並重抓當前頁，讓後端分頁查詢反映最新狀態。
+    function applyResultStatus(result: main.ScanResult, status: string) {
+        MarkScanResultStatus(resultsJobId, result.path, status)
+            .catch(() => {})
+            .finally(() => reloadResultsPage());
+    }
+
     function quarantineResultsItem(result: main.ScanResult) {
         QuarantineScanResult(result)
             .then(() => {
                 pushToast("success", "已隔離檔案");
-                setResultsItems((results) =>
-                    results.map((item) => (item.path === result.path ? {...item, status: "quarantined"} : item))
-                );
+                applyResultStatus(result, "quarantined");
             })
             .catch((error) => {
                 toastError("隔離失敗", error);
@@ -733,9 +747,7 @@ function App() {
         MoveScanResultToTrash(result)
             .then(() => {
                 pushToast("success", "已移到垃圾桶");
-                setResultsItems((results) =>
-                    results.map((item) => (item.path === result.path ? {...item, status: "trashed"} : item))
-                );
+                applyResultStatus(result, "trashed");
             })
             .catch((error) => {
                 toastError("移到垃圾桶失敗", error);
@@ -747,9 +759,7 @@ function App() {
             PermanentlyDeleteScanResult(result)
                 .then(() => {
                     pushToast("success", "已永久刪除", result.path);
-                    setResultsItems((results) =>
-                        results.map((item) => (item.path === result.path ? {...item, status: "deleted"} : item))
-                    );
+                    applyResultStatus(result, "deleted");
                 })
                 .catch((error) => {
                     toastError("永久刪除失敗", error);
@@ -992,35 +1002,20 @@ function App() {
                             <strong>{scanProgress?.errors ?? 0}<span>警告</span></strong>
                         </div>
                     </div>
-                    {scanResults.length > 0 && (
-                        <div className="resultsList">
-                            {scanResults.map((result) => (
-                                <div className="resultRow" key={`${result.path}-${result.status}-${result.signature}`}>
-                                    <span className={`checkBadge ${result.status === "clean" || result.status === "quarantined" ? "ok" : result.status === "infected" ? "unhealthy" : "missing"}`}>
-                                        {formatResultStatus(result.status)}
-                                    </span>
-                                <div>
-                                    <strong>{result.signature || result.error || result.status}</strong>
-                                    <code>{result.path}</code>
-                                    <div className="resultActions">
-                                        <div className="btnGroup">
-                                            <button className="secondaryButton" onClick={() => openScanResult(result)} type="button">前往位置</button>
-                                        </div>
-                                        {result.status === "infected" && (
-                                            <>
-                                                <div className="btnGroup btnGroup--divided">
-                                                    <button className="actionButton" onClick={() => quarantineResult(result)} type="button">隔離</button>
-                                                </div>
-                                                <div className="btnGroup btnGroup--divided">
-                                                    <button className="dangerSoftButton" onClick={() => moveResultToTrash(result)} type="button">移到垃圾桶</button>
-                                                    <button className="dangerButton" onClick={() => permanentlyDeleteResult(result)} type="button">永久刪除</button>
-                                                </div>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
+                    {scanJob && scanProgress?.status !== "scanning" && (
+                        <div className="scanSummary">
+                            <p>
+                                本次掃描完成：掃描 {scanJob.scannedFiles} 筆，偵測 {scanJob.detections} 筆，錯誤/略過 {scanJob.errors} 筆。
+                            </p>
+                            <div className="btnGroup">
+                                <button
+                                    className="primaryButton"
+                                    onClick={() => { setResultsJobId(scanJob.id); setActivePage("results"); }}
+                                    type="button"
+                                >
+                                    前往結果
+                                </button>
                             </div>
-                            ))}
                         </div>
                     )}
                 </section>
@@ -1163,25 +1158,9 @@ function App() {
 
         if (activePage === "results") {
             const filters = ["all", "clean", "infected", "error", "skipped"] as const;
-            const query = resultsSearch.trim().toLowerCase();
-            const filteredResults = resultsItems.filter((item) => {
-                if (resultsFilter !== "all" && item.status !== resultsFilter) {
-                    return false;
-                }
-                if (!query) {
-                    return true;
-                }
-                return (
-                    item.path.toLowerCase().includes(query) ||
-                    (item.signature ?? "").toLowerCase().includes(query)
-                );
-            });
-            const totalPages = Math.max(1, Math.ceil(filteredResults.length / RESULTS_PAGE_SIZE));
+            const totalPages = Math.max(1, Math.ceil(resultsTotal / RESULTS_PAGE_SIZE));
             const currentPage = Math.min(resultsPage, totalPages);
-            const pageItems = filteredResults.slice(
-                (currentPage - 1) * RESULTS_PAGE_SIZE,
-                currentPage * RESULTS_PAGE_SIZE
-            );
+            const selectedJob = resultsJobs.find((job) => job.id === resultsJobId);
 
             return (
                 <section className="panel">
@@ -1227,6 +1206,11 @@ function App() {
                                         ))}
                                     </select>
                                 </label>
+                                {selectedJob?.status === "interrupted" && (
+                                    <div className="btnGroup">
+                                        <button className="primaryButton" onClick={() => rescanJob(selectedJob)} type="button">重新掃描</button>
+                                    </div>
+                                )}
                             </div>
                             <div className="filterBar">
                                 {filters.map((filter) => (
@@ -1236,7 +1220,7 @@ function App() {
                                         onClick={() => setResultsFilter(filter)}
                                         type="button"
                                     >
-                                        {formatResultFilter(filter)}
+                                        {formatResultFilter(filter)}（{resultsCounts[filter] ?? 0}）
                                     </button>
                                 ))}
                             </div>
@@ -1249,16 +1233,16 @@ function App() {
                                     value={resultsSearch}
                                 />
                             </div>
-                            {filteredResults.length === 0 ? (
+                            {resultsTotal === 0 ? (
                                 <p>沒有符合篩選條件的結果。</p>
                             ) : (
                                 <>
                                     <p className="resultsCount">
-                                        共 {filteredResults.length} 筆結果
-                                        {totalPages > 1 ? `，顯示第 ${(currentPage - 1) * RESULTS_PAGE_SIZE + 1}–${Math.min(currentPage * RESULTS_PAGE_SIZE, filteredResults.length)} 筆` : ""}
+                                        共 {resultsTotal} 筆結果
+                                        {totalPages > 1 ? `，顯示第 ${(currentPage - 1) * RESULTS_PAGE_SIZE + 1}–${Math.min(currentPage * RESULTS_PAGE_SIZE, resultsTotal)} 筆` : ""}
                                     </p>
                                     <div className="resultsList">
-                                        {pageItems.map((result) => (
+                                        {resultsPageItems.map((result) => (
                                             <div className="resultRow" key={`${result.path}-${result.status}-${result.signature}`}>
                                                 <span className={`checkBadge ${result.status === "clean" || result.status === "quarantined" ? "ok" : result.status === "infected" ? "unhealthy" : "missing"}`}>
                                                     {formatResultStatus(result.status)}
@@ -2102,6 +2086,15 @@ function formatScanStatus(status: string) {
     }
     if (status === "failed") {
         return "失敗";
+    }
+    if (status === "interrupted") {
+        return "已中斷";
+    }
+    if (status === "scanning") {
+        return "掃描中";
+    }
+    if (status === "queued") {
+        return "排隊中";
     }
     return status;
 }
